@@ -1,6 +1,6 @@
 name = "ForwardMethods"
 uuid = "5fe2550f-d27e-4649-9aea-fdf9a83a1aa9"
-authors = ["Curt Da Silva <cdasilva@threelinetrading.com>"]
+authors = ["Curt Da Silva <curt.dasilva@gmail.com>"]
 version = "1.0.0"
 
 [deps]
