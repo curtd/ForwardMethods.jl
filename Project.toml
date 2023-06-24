@@ -5,3 +5,6 @@ version = "1.0.0"
 
 [deps]
 MLStyle = "d8e11817-5142-5d16-987a-aa16d5891078"
+
+[compat]
+MLStyle = "0.4"
