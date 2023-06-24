@@ -103,5 +103,6 @@ b = B(Dict{String,Int}())
 Note: certain methods for certain interfaces (e.g., `Base.similar` for the Array interface) are not included in this macro as direct method forwarding would not make sense to apply in these cases. 
 
 
-## Similar Packages
+## Similar Packages/Functionality
 - [ReusePatterns.jl](https://github.com/gcalderone/ReusePatterns.jl)
+- `@forward` in [Lazy.jl](https://github.com/MikeInnes/Lazy.jl)
