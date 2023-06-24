@@ -197,7 +197,7 @@ end
 interface_field_name_required(::typeof(dict_interface)) = true
 
 """
-    lockable_interface(T; omit=Symbol[])
+    ForwardMethods.lockable_interface(T; omit=Symbol[])
 
 Forwards the following methods for `x::T`:
 - `Base.lock(x::T)`
@@ -260,14 +260,14 @@ function forward_interface_expr(T, field_expr, interface_expr, kwargs::Dict{Symb
 
     f = interface_method(Val{interface_value})
     isnothing(f) && error("No interface found with name $interface_value -- must be one of `$interfaces_defined`")
-    field_func, field_name = parse_field(field_expr)
+    field_funcs = parse_field(field_expr)
     if interface_field_name_required(f)
-        isnothing(field_name) && error("Only fieldname mode for `field` (= $field) supported for interface (= $interface_value)") 
+        isnothing(field_funcs.type_func) && error("Only fieldname mode for `field` (= $field) supported for interface (= $interface_value)") 
     end
     signatures = f(T; omit, kwargs...)
     output = Expr(:block)
     for signature in signatures 
-        push!(output.args, forward_method_signature(T, field_func, field_name, map_func, signature; _sourceinfo))
+        push!(output.args, forward_method_signature(T, field_funcs, map_func, signature; _sourceinfo))
     end
     return output
 end

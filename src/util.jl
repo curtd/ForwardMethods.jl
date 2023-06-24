@@ -78,3 +78,11 @@ function parse_map_expr(map_expr)
     key != :map && return nothing
     return parse_map_func_expr(value)
 end
+
+function replace_first_arg_in_call_func(ex::Expr)
+    @match ex begin 
+        Expr(:call, func, arg1, args...) => let args=args; t->Expr(:call, func, t, args...) end
+        Expr(:ref, arg1, args...) => let args=args; t->Expr(:ref, t, args...) end
+        _ => error("Expression $ex must be a call expression")
+    end
+end
