@@ -1,6 +1,12 @@
 const arg_placeholder = :_
 const obj_placeholder = :_obj
 
+struct NestedField 
+    subfields::Vector{Symbol}
+end
+
+NestedField(args::Symbol...) = NestedField(collect(args))
+
 function arg_from_type_sig(expr)
     @switch expr begin 
         @case :($x::$T)
@@ -28,7 +34,12 @@ function matches_type_signature(T, UnionallType, expr)
     end
 end
 
-function forward_method_signature(Type, field_func, field_name, map_func::Function, input; _sourceinfo=nothing)
+struct FieldFuncExprs 
+    arg_func
+    type_func
+end
+
+function forward_method_signature(Type, field_funcs::FieldFuncExprs, map_func::Function, input; _sourceinfo=nothing)
     (func_expr, whereparams) = @switch input begin 
         @case Expr(:where, func, params...) 
             (func, params)
@@ -70,19 +81,20 @@ function forward_method_signature(Type, field_func, field_name, map_func::Functi
                 push!(input_args, object_argument(matched_arg, Type))
             end
             found_input_arg = matched_arg
-            found_arg = field_func(matched_arg)
+            found_arg = field_funcs.arg_func(matched_arg)
         elseif (_matches = matches_type_signature(Type, UnionallType, arg); _matches.matches)
             matched_arg = _matches.arg 
             if _matches.type 
                 found_input_arg = _matches.unionall ? UnionallType : Type
                 push!(input_args, type_argument(matched_arg))
-                isnothing(field_name) && error("Must forward methods with `Type{$Type}` signatures via `getfield` ")
-                found_arg = Expr(:call, :(Base.fieldtype), matched_arg, QuoteNode(field_name))
+                
+                isnothing(field_funcs.type_func) && error("Must forward methods with `Type{$Type}` signatures via `getfield` ")
+                found_arg = field_funcs.type_func(matched_arg)
                 found_arg_is_type = true
             else
                 found_input_arg = matched_arg
                 push!(input_args, arg)
-                found_arg = field_func(matched_arg)
+                found_arg = field_funcs.arg_func(matched_arg)
             end
         else 
             # Non-matching arguments, just forward argument names
@@ -125,43 +137,83 @@ function forward_method_signature(Type, field_func, field_name, map_func::Functi
     return func_def
 end
 
-forward_method_signature(Type, field_func, field_name, input; kwargs...) = forward_method_signature(Type, field_func, field_name, identity_map_expr, input; kwargs...)
+forward_method_signature(Type, field_funcs, input; kwargs...) = forward_method_signature(Type, field_funcs, identity_map_expr, input; kwargs...)
+
+function nested_dotted_field_arg_expr(field_expr, input)
+    @switch field_expr begin 
+        @case ::Symbol
+            return Expr(:call, :(Base.getfield), input, QuoteNode(field_expr))
+        @case ::QuoteNode && if (field_expr.value isa Symbol) end
+            return nested_dotted_field_arg_expr(field_expr.value, input)
+        @case Expr(:., lhs, rhs)
+            arg_expr = nested_dotted_field_arg_expr(lhs, input)
+            return Expr(:call, :(Base.getfield), arg_expr, rhs)
+        @case _ 
+            error("Invalid nested dotted expression $field_expr")
+    end
+end
+
+function nested_dotted_field_type_expr(field_expr, input)
+    @switch field_expr begin 
+        @case ::Symbol
+            return Expr(:call, :(Base.fieldtype), input, QuoteNode(field_expr))
+        @case ::QuoteNode && if (field_expr.value isa Symbol) end
+            return nested_dotted_field_type_expr(field_expr.value, input)
+        @case Expr(:., lhs, rhs)
+            arg_expr = nested_dotted_field_type_expr(lhs, input)
+            return Expr(:call, :(Base.fieldtype), arg_expr, rhs)
+        @case _ 
+            error("Invalid nested dotted expression $field_expr")
+    end
+end
+function nested_dotted_field_arg_func(value) 
+    return let value=value
+        (t)->nested_dotted_field_arg_expr(value, t)
+    end
+end
+function nested_dotted_field_type_func(value) 
+    return let value=value
+        (t)->nested_dotted_field_type_expr(value, t)
+    end
+end
+
+function FieldFuncExprs(value)
+    f = @switch value begin 
+            @case ::Symbol || Expr(:., arg1, arg2, args...)
+                (nested_dotted_field_arg_func(value), nested_dotted_field_type_func(value))
+            @case ::QuoteNode && if value.value isa Symbol end
+                FieldFuncExprs(value.value)
+            @case Expr(:ref, arg1, args...)
+                (replace_first_arg_in_call_func(value), nothing)
+            @case Expr(:call, func, arg1, arg2) 
+                if func in (:getproperty, :(Base.getproperty)) && arg2 isa QuoteNode
+                    (replace_first_arg_in_call_func(Expr(:call, :(Base.getproperty), arg1, arg2)), nothing)
+                elseif func in (:getfield, :(Base.getfield)) && arg2 isa QuoteNode 
+                    (nested_dotted_field_arg_func(arg2), nested_dotted_field_type_func(arg2))
+                elseif func in (:getindex, :(Base.getindex)) && arg2 isa QuoteNode 
+                    (replace_first_arg_in_call_func(Expr(:call, :(Base.getindex), arg1, arg2)), nothing)
+                else 
+                    @goto error
+                end
+            @case Expr(:call, func, arg1)
+                (replace_first_arg_in_call_func(value), nothing)
+            @case _ 
+                @goto error
+    end
+    if f isa FieldFuncExprs
+        return f 
+    else
+        arg_func, type_func = f
+        return FieldFuncExprs(arg_func, type_func)
+    end
+    @label error 
+    error("Invalid field expression `$value`")
+end
 
 function parse_field(field)
     @switch field begin 
         @case Expr(:(=), :field, value) 
-            return @switch value begin 
-                @case ::Symbol 
-                    (let value=value 
-                        (t)-> Expr(:call, :(Base.getfield), t, QuoteNode(value)) 
-                    end, value)
-                @case ::QuoteNode
-                    (let value=value 
-                        (t)-> Expr(:call, :(Base.getfield), t, value) 
-                    end, value.value)
-                @case Expr(:ref, arg1, args...)
-                    (let args=args  
-                        (t)-> Expr(:ref, t, args...)
-                    end, nothing)
-                @case Expr(:call, func, arg1, arg2) && if func in (:getproperty, :(Base.getproperty)) && arg2 isa QuoteNode end 
-                    (let value=arg2 
-                        (t)-> Expr(:call, :(Base.getproperty), t, value) 
-                    end, nothing)
-                @case Expr(:call, func, arg1, arg2) && if func in (:getfield, :(Base.getfield)) && arg2 isa QuoteNode end 
-                    (let value=arg2 
-                        (t)-> Expr(:call, :(Base.getfield), t, value) 
-                    end, arg2.value)
-                @case Expr(:call, func, arg1, arg2) && if func in (:getindex, :(Base.getindex)) end
-                    (let value=arg2 
-                        (t)-> Expr(:call, :(Base.getindex), t, value) 
-                    end, nothing)
-                @case Expr(:call, func, arg1) 
-                    (let func=func 
-                        (t)->Expr(:call, func, t)
-                    end, nothing)
-                @case _
-                    @goto error
-            end
+            return FieldFuncExprs(value)
         @case _ 
             @goto error 
     end
@@ -170,7 +222,7 @@ function parse_field(field)
 end
 
 function forward_methods_expr(Type, field_expr, args...; _sourceinfo=nothing)
-    field_func, field_name = parse_field(field_expr)
+    field_funcs = parse_field(field_expr)
     !isempty(args) || error("Input arguments must be nonempty")
     firstarg, rest = Iterators.peel(args)
     if (map_func = parse_map_expr(firstarg); !isnothing(map_func))
@@ -182,7 +234,7 @@ function forward_methods_expr(Type, field_expr, args...; _sourceinfo=nothing)
 
     output = Expr(:block)
     for arg in method_exprs
-        push!(output.args, forward_method_signature(Type, field_func, field_name, arg; _sourceinfo))
+        push!(output.args, forward_method_signature(Type, field_funcs, arg; _sourceinfo))
     end
     return output
 end
@@ -194,6 +246,7 @@ Forwards the method definitions for `x::T`, depending on the value of `_field`.
 
 `_field` must be one of the following expressions
 - `k::Symbol` or `k::QuoteNode`, or an expression of the form `getfield(_, k)`, in which case methods will be forwarded to `getfield(x, k)`
+- an expression of the form `a.b.c. ...`, in which case methods will be forwarded to `getfield(getfield(getfield(x, :a), :b), :c) ...`
 - an expression of the form `getproperty(_, k)`, in which case methods will be forwarded to `getproperty(x, k)`
 - an expression of the form `t[args...]`, in which case methods will be forwarded to `x[args...]`
 - or an expression of the form `f(_)` for a single-argument function `f`, in which case methods will be forwarded to `f(x)`

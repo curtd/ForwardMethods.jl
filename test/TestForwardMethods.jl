@@ -42,23 +42,38 @@ module TestForwardMethods
     @forward_interface LockableDict{K,V} field=lock interface=lockable
     @forward_interface LockableDict{K,V} field=d interface=dict map=begin lock(_obj); try _ finally unlock(_obj) end end
 
+    struct InnerVector 
+        v::Vector{Int}
+    end
+    struct NestedForward
+        h::InnerVector
+    end
+    @forward_interface NestedForward field=h.v interface=array index_style_linear=true
+
     @testset "@forward" begin 
         @testset "Parsing" begin 
             @test_cases begin 
-                input                        |  output_x                | output_y                  | output_arg2
-                :(field=:abc)                | :(Base.getfield(x,:abc)) | :(Base.getfield(y,:abc))  | :abc
-                :(field=abc)                 | :(Base.getfield(x,:abc)) | :(Base.getfield(y,:abc))  | :abc
-                :(field=getproperty(_,:abc)) | :(Base.getproperty(x, :abc))  | :(Base.getproperty(y, :abc)) | nothing
-                :(field=Base.getproperty(_,:abc)) |  :(Base.getproperty(x, :abc))  | :(Base.getproperty(y, :abc)) | nothing
-                :(field=getfield(_,:abc))    | :(Base.getfield(x,:abc)) | :(Base.getfield(y,:abc)) | :abc
-                :(field=Base.getfield(_,:abc)) | :(Base.getfield(x,:abc)) | :(Base.getfield(y,:abc)) | :abc
-                :(field=getindex(x,:k))      | :(Base.getindex(x,:k)) | :(Base.getindex(y, :k)) | nothing
-                :(field=t[])                 | :(x[])       | :(y[]) | nothing
-                :(field=t[1])                 | :(x[1])       | :(y[1]) | nothing
-                :(field=f(z))                | :(f(x)) | :(f(y)) | nothing
-                @test (ForwardMethods.parse_field(input)[1])(:x) == output_x
-                @test isequal(ForwardMethods.parse_field(input)[2], output_arg2)
-                @test (ForwardMethods.parse_field(input)[1])(:y) == output_y
+                input                        |  output_x                | output_y                  
+                :(field=getproperty(_,:abc)) | :(Base.getproperty(x, :abc))  | :(Base.getproperty(y, :abc))
+                :(field=Base.getproperty(_,:abc)) |  :(Base.getproperty(x, :abc))  | :(Base.getproperty(y, :abc)) 
+                :(field=getindex(x,:k))      | :(Base.getindex(x,:k)) | :(Base.getindex(y, :k)) 
+                :(field=t[])                 | :(x[])       | :(y[])
+                :(field=t[1])                 | :(x[1])       | :(y[1])
+                :(field=f(z))                | :(f(x)) | :(f(y)) 
+                @test (ForwardMethods.parse_field(input).arg_func)(:x) == output_x
+                @test (ForwardMethods.parse_field(input).arg_func)(:y) == output_y
+                @test isnothing(ForwardMethods.parse_field(input).type_func)
+            end
+            @test_cases begin 
+                input                        | output_arg_x             | output_arg_y               | output_type_x
+                :(field=:abc)                | :(Base.getfield(x,:abc)) | :(Base.getfield(y,:abc))   | :(Base.fieldtype(x, :abc))
+                :(field=abc)                 | :(Base.getfield(x,:abc)) | :(Base.getfield(y,:abc))   | :(Base.fieldtype(x, :abc))
+                :(field=abc.def.ghi)         | :(Base.getfield(Base.getfield(Base.getfield(x,:abc), :def), :ghi)) | :(Base.getfield(Base.getfield(Base.getfield(y,:abc), :def), :ghi))   |  :(Base.fieldtype(Base.fieldtype(Base.fieldtype(x,:abc), :def), :ghi))
+                :(field=getfield(_,:abc))    | :(Base.getfield(x,:abc)) | :(Base.getfield(y,:abc))   | :(Base.fieldtype(x, :abc))
+                :(field=Base.getfield(_,:abc)) | :(Base.getfield(x,:abc)) | :(Base.getfield(y,:abc)) | :(Base.fieldtype(x, :abc))
+                @test (ForwardMethods.parse_field(input).arg_func)(:x) == output_arg_x
+                @test (ForwardMethods.parse_field(input).arg_func)(:y) == output_arg_y
+                @test (ForwardMethods.parse_field(input).type_func)(:x) == output_type_x
             end
             @test_cases begin 
                 Type        |  UnionallType  |   expr    |  output 
@@ -91,8 +106,7 @@ module TestForwardMethods
             @Test isnothing(ForwardMethods.parse_map_expr(:x))
         end
         @testset "Expression generation" begin 
-            field_func = (t)->:(Base.getproperty($t, :b))
-            field_name = nothing
+            field_funcs = ForwardMethods.FieldFuncExprs( (t)->:(Base.getproperty($t, :b)), nothing )
             matches_rhs = (t, x_ref=:x)->begin 
                 @match t begin 
                     quote 
@@ -103,7 +117,7 @@ module TestForwardMethods
                 end
             end
             for (T, input_expr) in ((:A, :(Base.getindex(x::A, k))), (:(A{B1,B2}), :(Base.getindex(x::A{B1,B2},k) where {B1,B2})), (:(A{B1,B2}), :(Base.getindex(x::A, k))))
-                output = ForwardMethods.forward_method_signature(T, field_func, field_name, input_expr)
+                output = ForwardMethods.forward_method_signature(T, field_funcs, input_expr)
                 matches = @switch output begin
                     @case :($lhs = $rhs) && if lhs == input_expr end 
                         matches_rhs(rhs)
@@ -113,10 +127,9 @@ module TestForwardMethods
                 @test matches
             end
 
-            field_func = (t)->:(Base.getfield($t, :b))
-            field_name = :b
+            field_funcs = ForwardMethods.FieldFuncExprs( (t)->:(Base.getfield($t, :b)), (t) -> :(Base.fieldtype($t, :b)))
             T = :A 
-            new_input_expr = :(Base.length) 
+            input_expr = :(Base.length) 
             matches_rhs = (t, x_ref=:x)->begin 
                 @match t begin 
                     quote 
@@ -126,7 +139,7 @@ module TestForwardMethods
                     _ => false
                 end
             end
-            output = ForwardMethods.forward_method_signature(T, field_func, field_name, new_input_expr)
+            output = ForwardMethods.forward_method_signature(T, field_funcs, input_expr)
             matches = @switch output begin
                 @case :($lhs = $rhs)
                     @match lhs begin 
@@ -138,7 +151,7 @@ module TestForwardMethods
             end
             @test matches
 
-            new_input_expr = :(Base.eltype(::Type{A})) 
+            input_expr = :(Base.eltype(::Type{A})) 
             matches_rhs = (t, x_ref=:x)->begin 
                 @match t begin 
                     quote 
@@ -148,7 +161,7 @@ module TestForwardMethods
                     _ => false
                 end
             end
-            output = ForwardMethods.forward_method_signature(T, field_func, field_name, new_input_expr)
+            output = ForwardMethods.forward_method_signature(T, field_funcs, input_expr)
             matches = @switch output begin
                 @case :($lhs = $rhs)
                     @match lhs begin 
@@ -161,8 +174,7 @@ module TestForwardMethods
             @test matches
             
             # Testing underscore parameters 
-            field_func = (t)->:(Base.getfield($t, :b))
-            field_name = :b
+            field_funcs = ForwardMethods.FieldFuncExprs( (t)->:(Base.getfield($t, :b)), (t) -> :(Base.fieldtype($t, :b)))
             T = :(A{B1,B2})  
             input_expr = :(Base.getindex(_, k) where {B1, B2})
             matches_rhs = (t, x_ref=:x)->begin 
@@ -174,7 +186,7 @@ module TestForwardMethods
                     _ => false
                 end
             end
-            output = ForwardMethods.forward_method_signature(T, field_func, field_name, input_expr)
+            output = ForwardMethods.forward_method_signature(T, field_funcs, input_expr)
             matches = @switch output begin
                 @case :($lhs = $rhs)
                     @match lhs begin 
@@ -190,7 +202,7 @@ module TestForwardMethods
             # If provided type is parametric but signature does not qualify where statement -- use unionall type in signature
             T = :(C.A{B1,B2})  
             input_expr = :(Base.getindex(_, k))
-            output = ForwardMethods.forward_method_signature(T, field_func, field_name, input_expr)
+            output = ForwardMethods.forward_method_signature(T, field_funcs, input_expr)
             matches = @switch output begin
                 @case :($lhs = $rhs)
                     @match lhs begin 
@@ -209,6 +221,9 @@ module TestForwardMethods
 
         @Test length(B([0])) == 1
         @Test B([0])[1] == 0
+
+        v = NestedForward(InnerVector([1,2,3]))
+        @Test v[1] == 1
     end
 
     @testset "@forward_interface" begin 
