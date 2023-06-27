@@ -72,6 +72,8 @@ Letting `x::T` denote the object of interest, the value of the keyword argument 
 
 - If `_field = k` with `k::Symbol` or a `k::QuoteNode`, or an expression of the form `getfield(_, k)`, in which case methods will be forwarded to `getfield(x, k)`
 
+- If `_field = a.b.c. ... .z` is a dotted expression, methods will be forwarded to `getfield(getfield(... getfield(getfield(x, :a), :b), ...), :z)`
+
 - If `_field` is an expression of the form `getproperty(_, k)`, the method instances will be forwarded to `getproperty(x, k)`
 
 - If `_field` is an expression of the form `t[args...]`, the method instances will be forwarded to `x[args...]`
