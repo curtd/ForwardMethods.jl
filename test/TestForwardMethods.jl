@@ -50,6 +50,20 @@ module TestForwardMethods
     end
     @forward_interface NestedForward field=h.v interface=array index_style_linear=true
 
+    struct ManyProperties 
+        key1::String 
+        key2::Int 
+        key3::Bool 
+    end
+    @forward_interface ManyProperties interface=getfields 
+
+    mutable struct SettableProperties 
+        key1::String 
+        key2::Int 
+        key3::Bool
+    end
+    @forward_interface SettableProperties interface=(getfields,setfields)
+
     @testset "@forward" begin 
         @testset "Parsing" begin 
             @test_cases begin 
@@ -278,5 +292,21 @@ module TestForwardMethods
         l = LockableDict(Dict{String,Int}(), ReentrantLock())
         l["a"] = 1
         @Test l["a"] == 1
+
+        p = ManyProperties("abc", 0, true)
+        @Test key1(p) == "abc"
+        @Test key2(p) == 0
+        @Test key3(p) == true
+
+        q = SettableProperties("abc", 0, true)
+        @Test key1(q) == "abc"
+        @Test key2(q) == 0
+        @Test key3(q) == true
+        key1!(q, "zzz")
+        @Test key1(q) == "zzz"
+        key2!(q, 1)
+        @Test key2(q) == 1
+        key3!(q, false)
+        @Test key3(q) == false
     end
 end

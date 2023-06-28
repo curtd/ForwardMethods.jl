@@ -1,12 +1,6 @@
 const arg_placeholder = :_
 const obj_placeholder = :_obj
 
-struct NestedField 
-    subfields::Vector{Symbol}
-end
-
-NestedField(args::Symbol...) = NestedField(collect(args))
-
 function arg_from_type_sig(expr)
     @switch expr begin 
         @case :($x::$T)
