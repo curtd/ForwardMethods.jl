@@ -1,15 +1,14 @@
 # API 
 
-```@autodocs 
-Modules = [ForwardMethods]
-Order   = [:macro, :function] 
-Private = false
-```
-
 ```@docs 
-ForwardMethods.iteration_interface(T; omit)
-ForwardMethods.indexing_interface(T; omit)
-ForwardMethods.lockable_interface(T; omit)
-ForwardMethods.array_interface(T; omit)
-ForwardMethods.dict_interface(T; omit)
+@forward_methods
+@forward_interface
+
+ForwardMethods.iteration_interface
+ForwardMethods.indexing_interface
+ForwardMethods.lockable_interface
+ForwardMethods.array_interface
+ForwardMethods.dict_interface
+ForwardMethods.getfields_interface
+ForwardMethods.setfields_interface
 ```
