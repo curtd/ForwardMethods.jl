@@ -1,5 +1,6 @@
 interface_method(x) = nothing
 interface_field_name_required(x) = false 
+interface_at_macroexpand_time(x) = true
 
 base_forward_expr(f, args...) = Expr(:call, f, args...)
 
@@ -222,21 +223,70 @@ function lockable_interface(T; omit::AbstractVector{Symbol}=Symbol[])
     return method_signatures
 end
 
-const interfaces_defined = (:iteration, :indexing, :array, :dict, :lockable)
+"""
+    getfields_interface(T; omit=Symbol[])
 
-for f in interfaces_defined 
-    @eval interface_method(::Type{Val{$(QuoteNode(f))}}) = $(Symbol(string(f)*"_interface"))
+Given `x::T`, forwards the method `\$field(x::T)` to `getfield(x, \$field)`, for each `field in fieldnames(T)`
+"""
+function getfields_interface(T; omit::AbstractVector{Symbol}=Symbol[])
+    return Base.remove_linenums!(quote 
+        local omit_fields = $(Expr(:tuple, omit...))
+        local fields = fieldnames($T)
+        local def_fields_expr = Expr(:block)
+        local var = gensym("x")
+        for field in fields 
+            if field ∉ omit_fields
+                push!(def_fields_expr.args, :($field($var::$$T) = Base.getfield($var, $(QuoteNode(field)))))
+            end
+        end
+        eval(def_fields_expr)
+        nothing
+    end)
 end
 
-function forward_interface_expr(T, field_expr, interface_expr, kwargs::Dict{Symbol,Any}=Dict{Symbol,Any}(); _sourceinfo=nothing)
-    interface_kwarg = parse_kwarg_expr(interface_expr; expr_name="interface", throw_error=false)
-    if isnothing(interface_kwarg)
-        interface_value = interface_kwarg
-    else
-        interface_key, interface_value = interface_kwarg 
-        interface_key == :interface || error("Expected `interface` key from $interface_expr expression, got $interface_key")
+interface_at_macroexpand_time(::typeof(getfields_interface)) = false
+
+"""
+    setfields_interface(T; omit=Symbol[])
+
+Given `x::T`, forwards the method `\$field!(x::T, value)` to `setfield!(x, \$field, value)`, for each `field in fieldnames(T)`
+"""
+function setfields_interface(T; omit::AbstractVector{Symbol}=Symbol[])
+    return Base.remove_linenums!(quote 
+        local omit_fields = $(Expr(:tuple, omit...))
+        local fields = fieldnames($T)
+        local def_fields_expr = Expr(:block)
+        local var = gensym("x")
+        for field in fields 
+            if field ∉ omit_fields
+                push!(def_fields_expr.args, :($(Symbol(string(field)*"!"))($var::$$T, value) = Base.setfield!($var, $(QuoteNode(field)), value)))
+            end
+        end
+        eval(def_fields_expr)
+        nothing
+    end)
+end
+
+interface_at_macroexpand_time(::typeof(setfields_interface)) = false
+
+const interfaces_defined = (:iteration, :indexing, :array, :dict, :lockable, :getfields, :setfields)
+
+for f in interfaces_defined 
+    @eval interface_method(::Val{$(QuoteNode(f))}) = $(Symbol(string(f)*"_interface"))
+end
+
+function forward_interface_expr(T, kwargs::Dict{Symbol,Any}=Dict{Symbol,Any}(); _sourceinfo=nothing)
+    !haskey(kwargs, :interface) && error("Expected `interface` from keyword arguments")
+    interface_value = pop!(kwargs, :interface)
+    interfaces = @switch interface_value begin 
+        @case ::Symbol 
+            [interface_value]
+        @case (Expr(:vect, args...) || Expr(:tuple, args...)) && if all(arg isa Symbol for arg in args) end
+            convert(Vector{Symbol}, collect(args))
+        @case _ 
+            error("`interface` (= $interface_value) must be a Symbol or a `vect` expression of Symbols")
     end
-    interface_value isa Symbol || error("interface value (= $interface_value) must be a Symbol, got typeof(interface_value) = $(typeof(interface_value))")
+
     map_val = pop!(kwargs, :map, nothing)
     if !isnothing(map_val) && (map_func = parse_map_func_expr(map_val); !isnothing(map_func))
         nothing
@@ -249,7 +299,7 @@ function forward_interface_expr(T, field_expr, interface_expr, kwargs::Dict{Symb
         omit = @switch omit_val begin 
             @case ::Symbol 
                 Symbol[omit_val]
-            @case Expr(:vect, args...) && if all(arg isa Symbol for arg in args) end 
+            @case (Expr(:vect, args...) || Expr(:tuple, args...)) && if all(arg isa Symbol for arg in args) end 
                 convert(Vector{Symbol}, collect(args))
             @case _ 
                 error("omit value (=$omit_val) must be a `Symbol` or a `vect` expression with `Symbol` arguments")
@@ -257,19 +307,35 @@ function forward_interface_expr(T, field_expr, interface_expr, kwargs::Dict{Symb
     else 
         omit = Symbol[]
     end
+    field_expr = pop!(kwargs, :field, nothing)
+    if !isnothing(field_expr)
+        field_funcs = parse_field(Expr(:(=), :field, field_expr))
+    else
+        field_funcs = nothing
+    end
 
-    f = interface_method(Val{interface_value})
-    isnothing(f) && error("No interface found with name $interface_value -- must be one of `$interfaces_defined`")
-    field_funcs = parse_field(field_expr)
-    if interface_field_name_required(f)
-        isnothing(field_funcs.type_func) && error("Only fieldname mode for `field` (= $field) supported for interface (= $interface_value)") 
+    _output = Expr(:block)
+    for interface in interfaces
+        f = interface_method(Val(interface))
+        isnothing(f) && error("No interface found with name $interface -- must be one of `$interfaces_defined`")
+
+        if interface_at_macroexpand_time(f)
+            isnothing(field_funcs) && error("Expected `field` from keyword arguments for interface `$interface`")
+
+            if interface_field_name_required(f)
+                isnothing(field_funcs.type_func) && error("Only fieldname mode for `field` (= $field) supported for interface (= $interface_value)") 
+            end
+            signatures = f(T; omit, kwargs...)
+            output = Expr(:block)
+            for signature in signatures 
+                push!(output.args, forward_method_signature(T, field_funcs, map_func, signature; _sourceinfo))
+            end
+            push!(_output.args, output)
+        else 
+            push!(_output.args, f(T; omit, kwargs...))
+        end
     end
-    signatures = f(T; omit, kwargs...)
-    output = Expr(:block)
-    for signature in signatures 
-        push!(output.args, forward_method_signature(T, field_funcs, map_func, signature; _sourceinfo))
-    end
-    return output
+    return _output
 end
 
 """
@@ -277,23 +343,27 @@ end
 
 Forwards the methods defined for `interface` to objects of type `T`
 
-`_field` must be one of the following expressions
+# Arguments 
+`_interface` must be one of $(interfaces_defined), with `_interface` value `f` corresponding to the interface definition function `\$f_interface` (e.g., `array` => `array_interface`).
+
+If `_interface` is either `getfields` or `setfields`, then the `field` keyword argument is ignored 
+
+Otherwise, `_field` must be one of the following expressions
 - `k::Symbol` or `k::QuoteNode`, or an expression of the form `getfield(_, k)`, in which case methods will be forwarded to `getfield(x, k)`
 - an expression of the form `getproperty(_, k)`, in which case methods will be forwarded to `getproperty(x, k)`
 - an expression of the form `t[args...]`, in which case methods will be forwarded to `x[args...]`
 - or an expression of the form `f(_)` for a single-argument function `f`, in which case methods will be forwarded to `f(x)`
 
-`_interface` must be one of $(interfaces_defined), with `_interface` value `f` corresponding to the interface definition function `\$f_interface` (e.g., `array` => `array_interface`).
-
+# Additional Arguments 
 The `key=value` pairs will be forwarded to the corresponding interface definition method. In particular, specifying `omit=func1` or `omit=[func1,func2, ..., funcn]` will omit `func1`, ..., `funcn` from being forwarded by this macro.
 
 See also [`@forward_methods`](@ref)
 """
-macro forward_interface(T, field, interface, args...)
+macro forward_interface(T, args...)
     kwargs = Dict{Symbol,Any}()
     for arg in args 
         key, value = parse_kwarg_expr(arg)
         kwargs[key] = value
     end
-    return forward_interface_expr(T, field, interface, kwargs; _sourceinfo=__source__) |> esc
+    return forward_interface_expr(T, kwargs; _sourceinfo=__source__) |> esc
 end

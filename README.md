@@ -88,7 +88,7 @@ If the type of `S` has a known interface (e.g., a fixed set of methods defined w
     @forward_interface T field=_field interface=_interface [kwargs...]
 ```
 
-Here `T` and `_field` are as above and `_interface` is one of a preset number of values, namely `iteration`, `indexing`, `array`, `dict`. The value of `_interface` determines the specific forwarded method signatures that are generated, e.g., 
+Here `T` and `_field` are as above and `_interface` is one of a preset number of values, namely `iteration`, `indexing`, `array`, `dict`, `getfields`, and `setfields`. The value of `_interface` determines the specific forwarded method signatures that are generated, e.g., 
 
 ```julia
 struct B
@@ -103,6 +103,12 @@ b = B(Dict{String,Int}())
 `b` can now be used as a drop-in replacement in any method where a `Dict{String,Int}` is supported.
 
 Note: certain methods for certain interfaces (e.g., `Base.similar` for the Array interface) are not included in this macro as direct method forwarding would not make sense to apply in these cases. 
+
+The `getfields` and `setfields` interfaces are dynamically generated based on the fields of type `T`. 
+
+When `interface=getfields`, this macro forwards methods of the form `\$field(x::T) = getfield(x, \$field)` for each `field ∈ fieldnames(T)`
+
+When `interface=setfields`, this macro forwards methods of the form `\$field!(x::T, value) = setfield!(x, \$field, value)` for each `field ∈ fieldnames(T)`
 
 
 ## Similar Packages/Functionality
