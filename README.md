@@ -5,7 +5,7 @@
 [![Build Status](https://github.com/curtd/ForwardMethods.jl/actions/workflows/CI.yml/badge.svg?branch=main)](https://github.com/curtd/ForwardMethods.jl/actions/workflows/CI.yml?query=branch%3Amain)
 [![Coverage Status](https://coveralls.io/repos/github/curtd/ForwardMethods.jl/badge.svg)](https://coveralls.io/github/curtd/ForwardMethods.jl)
 
-`ForwardMethods` provides macros that automate some of the boilerplate involved when using composition for object polymorphism. This package is essentially fancy copy + paste for forwarding function definitions. 
+`ForwardMethods` provides macros that automate some of the boilerplate involved when using composition for object polymorphism. This package is essentially fancy copy + paste for forwarding function definitions, as well as providing automatically generated generic interfaces for struct types. 
 
 # `@forward_methods` 
 Given a hypothetical definition for type `T` with a subfield `s` of type `S`, i.e., 
@@ -114,7 +114,7 @@ When `interface=setfields`, this macro forwards methods of the form `$field!(x::
 Certain interfaces are defined for objects `x::T` that don't involve explicit forwarding to a fixed-field, per-se, but can be generally useful. 
 
 ## `properties` interface 
-The `properties` interface allows a unified interface for `x::T` with subfields 
+The `properties` interface allows a unified `Base.propertynames`, `Base.getproperty`, and `Base.setproperty!` interface for `x::T` which is composed of subfields `k1, k2, ..., kn` whose fields should also be included in the properties of `x`. This pattern arises when creating composite types. For example,
 
 ```julia
 julia> struct A
@@ -140,6 +140,8 @@ C(A(1, true), B("a", 0.0))
 julia> (key1=c.key1, key2=c.key2, key3=c.key3, key4=c.key4, a=c.a, b=c.b)
 (key1 = 1, key2 = true, key3 = "a", key4 = 0.0, a = A(1, true), b = B("a", 0.0))
 ```
+
+Essentially the fields of `c.a` and `c.b` has been flattened to provide a unified view of the properties of `c`.
 
 ## `equality` interface
 The `equality` interface defines `Base.==` or `Base.isequal` for objects of `T` in the obvious way, i.e., 
