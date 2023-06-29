@@ -72,7 +72,7 @@ module TestForwardMethods
         key2::Int 
         key3::Bool
     end
-    @forward_interface SettableProperties interface=(getfields,setfields)
+    @define_interface SettableProperties interface=(getfields, setfields)
 
     mutable struct CompositeProperties
         settable::SettableProperties
