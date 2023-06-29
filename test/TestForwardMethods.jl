@@ -3,6 +3,16 @@ module TestForwardMethods
 
     using Test, TestingUtilities 
 
+    macro test_throws_compat(ExceptionType, message, expr)
+        output = Expr(:block)
+    
+        push!(output.args, :(@test_throws $ExceptionType $expr))
+        if VERSION ≥ v"1.7"
+            push!(output.args, :(@test_throws $message $expr))
+        end
+        return output |> esc
+    end
+
     struct A
         v::Vector{Int}
     end
@@ -63,6 +73,38 @@ module TestForwardMethods
         key3::Bool
     end
     @forward_interface SettableProperties interface=(getfields,setfields)
+
+    mutable struct CompositeProperties
+        settable::SettableProperties
+        key4::Float64
+    end
+    @define_interface CompositeProperties interface=properties delegated_fields=settable
+
+    mutable struct SettableProperties2
+        key4::Float64
+        key5::Vector{Int}
+    end
+    @define_interface SettableProperties2 interface=equality 
+
+    struct EqualityUsingProperties 
+        d::Dict{Symbol,Int}
+    end
+    Base.propertynames(e::EqualityUsingProperties) = collect(keys(getfield(e, :d)))
+    Base.getproperty(e::EqualityUsingProperties, k::Symbol) = getfield(e, :d)[k]
+    Base.setproperty!(e::EqualityUsingProperties, k::Symbol, v::Int) = getfield(e, :d)[k] = v
+    @define_interface EqualityUsingProperties interface=equality compare_fields=propertynames
+
+    mutable struct CompositeProperties2
+        settable::SettableProperties
+        alsosettable::SettableProperties2
+    end
+    @define_interface CompositeProperties2 interface=properties delegated_fields=(settable, alsosettable)
+
+    struct ClashingKeys 
+        key1::SettableProperties
+        key2::String
+    end
+    @test_throws_compat ErrorException "Type $ClashingKeys has duplicate field names between itself and/or its requested fields (= (:key1,)) -- duplicate field names = [:key1, :key2]" @define_interface ClashingKeys interface=properties delegated_fields=key1
 
     @testset "@forward" begin 
         @testset "Parsing" begin 
@@ -308,5 +350,38 @@ module TestForwardMethods
         @Test key2(q) == 1
         key3!(q, false)
         @Test key3(q) == false
+
+    end
+    @testset "@define_interface" begin 
+        c = CompositeProperties(SettableProperties("abc", 0, true), 0.0)
+        @Test propertynames(c) == (:settable, :key4, :key1, :key2, :key3)
+        @Test c.settable == getfield(c, :settable)
+        @Test c.key4 == getfield(c, :key4)
+        @Test c.key1 == getfield(getfield(c, :settable), :key1)
+        @Test c.key2 == getfield(getfield(c, :settable), :key2)
+        @Test c.key3 == getfield(getfield(c, :settable), :key3)
+        c.key1 = "zzz"
+        @Test c.key1 == "zzz"
+
+        c = CompositeProperties2(SettableProperties("abc", 0, true), SettableProperties2(0.0, [0]))
+        @Test propertynames(c) == (:settable, :alsosettable, :key1, :key2, :key3, :key4, :key5)
+        @Test c.settable == getfield(c, :settable)
+        @Test c.alsosettable == getfield(c, :alsosettable)
+        @Test c.key1 == getfield(getfield(c, :settable), :key1)
+        @Test c.key2 == getfield(getfield(c, :settable), :key2)
+        @Test c.key3 == getfield(getfield(c, :settable), :key3)
+        @Test c.key4 == getfield(getfield(c, :alsosettable), :key4)
+        @Test c.key5 == getfield(getfield(c, :alsosettable), :key5)
+
+        c.key3 = false 
+        c.key4 = 1.0
+        @Test getfield(getfield(c, :settable), :key3) == false
+        @Test getfield(getfield(c, :alsosettable), :key4) == 1.0
+        @Test c.alsosettable == SettableProperties2(1.0, [0])
+        @Test c.alsosettable != SettableProperties2(1.0, [1])
+
+        e = EqualityUsingProperties(Dict(:a => 1))
+        @Test e == EqualityUsingProperties(Dict(:a => 1))
+        @Test e != EqualityUsingProperties(Dict(:a => 1, :b => 2))
     end
 end

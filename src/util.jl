@@ -86,3 +86,40 @@ function replace_first_arg_in_call_func(ex::Expr)
         _ => error("Expression $ex must be a call expression")
     end
 end
+
+function parse_vect_of_symbols(expr; kwarg_name::Symbol)
+    @switch expr begin 
+        @case ::Symbol 
+            return Symbol[expr]
+        @case (Expr(:vect, args...) || Expr(:tuple, args...)) && if all(arg isa Symbol for arg in args) end
+            return convert(Vector{Symbol}, collect(args))
+        @case _ 
+            error("`$kwarg_name` (= $expr) must be a Symbol or a `vect` expression of Symbols")
+    end
+end
+
+function interface_kwarg!(kwargs::Dict{Symbol,Any}; allow_multiple::Bool=true)
+    !haskey(kwargs, :interface) && error("Expected `interface` from keyword arguments")
+    interface_val = pop!(kwargs, :interface)
+    if allow_multiple
+        return parse_vect_of_symbols(interface_val; kwarg_name=:interface)
+    else
+        interface_val isa Symbol || error("`interface` (= $interface_val) must be a `Symbol`, got typeof(interface) = $(typeof(interface_val))")
+        return Symbol[interface_val]
+    end
+end
+
+function omit_kwarg!(kwargs::Dict{Symbol,Any})
+    omit_val = pop!(kwargs, :omit, nothing)
+    if !isnothing(omit_val)
+        return parse_vect_of_symbols(omit_val; kwarg_name=:omit)
+    else
+        return Symbol[]
+    end
+end
+
+function get_kwarg(::Type{T}, kwargs, key::Symbol, default) where {T}
+    value = get(kwargs, key, default)
+    value isa T || error("$key (= $value) must be a $T, got typeof($key) = $(typeof(value))")
+    return value
+end

@@ -1,7 +1,6 @@
-interface_method(x) = nothing
+forward_interface_method(x) = nothing
 interface_field_name_required(x) = false 
 interface_at_macroexpand_time(x) = true
-
 base_forward_expr(f, args...) = Expr(:call, f, args...)
 
 # Iteration, indexing, array interface methods from https://docs.julialang.org/en/v1/manual/interfaces/#Interfaces
@@ -269,24 +268,16 @@ end
 
 interface_at_macroexpand_time(::typeof(setfields_interface)) = false
 
-const interfaces_defined = (:iteration, :indexing, :array, :dict, :lockable, :getfields, :setfields)
 
-for f in interfaces_defined 
-    @eval interface_method(::Val{$(QuoteNode(f))}) = $(Symbol(string(f)*"_interface"))
+const forward_interfaces_available = (:iteration, :indexing, :array, :dict, :lockable, :getfields, :setfields)
+
+for f in forward_interfaces_available 
+    @eval forward_interface_method(::Val{$(QuoteNode(f))}) = $(Symbol(string(f)*"_interface"))
 end
 
 function forward_interface_expr(T, kwargs::Dict{Symbol,Any}=Dict{Symbol,Any}(); _sourceinfo=nothing)
-    !haskey(kwargs, :interface) && error("Expected `interface` from keyword arguments")
-    interface_value = pop!(kwargs, :interface)
-    interfaces = @switch interface_value begin 
-        @case ::Symbol 
-            [interface_value]
-        @case (Expr(:vect, args...) || Expr(:tuple, args...)) && if all(arg isa Symbol for arg in args) end
-            convert(Vector{Symbol}, collect(args))
-        @case _ 
-            error("`interface` (= $interface_value) must be a Symbol or a `vect` expression of Symbols")
-    end
-
+    interfaces = interface_kwarg!(kwargs)
+    omit = omit_kwarg!(kwargs)
     map_val = pop!(kwargs, :map, nothing)
     if !isnothing(map_val) && (map_func = parse_map_func_expr(map_val); !isnothing(map_func))
         nothing
@@ -294,19 +285,6 @@ function forward_interface_expr(T, kwargs::Dict{Symbol,Any}=Dict{Symbol,Any}(); 
         map_func = identity_map_expr
     end
 
-    omit_val = pop!(kwargs, :omit, nothing)
-    if !isnothing(omit_val)
-        omit = @switch omit_val begin 
-            @case ::Symbol 
-                Symbol[omit_val]
-            @case (Expr(:vect, args...) || Expr(:tuple, args...)) && if all(arg isa Symbol for arg in args) end 
-                convert(Vector{Symbol}, collect(args))
-            @case _ 
-                error("omit value (=$omit_val) must be a `Symbol` or a `vect` expression with `Symbol` arguments")
-        end
-    else 
-        omit = Symbol[]
-    end
     field_expr = pop!(kwargs, :field, nothing)
     if !isnothing(field_expr)
         field_funcs = parse_field(Expr(:(=), :field, field_expr))
@@ -316,8 +294,8 @@ function forward_interface_expr(T, kwargs::Dict{Symbol,Any}=Dict{Symbol,Any}(); 
 
     _output = Expr(:block)
     for interface in interfaces
-        f = interface_method(Val(interface))
-        isnothing(f) && error("No interface found with name $interface -- must be one of `$interfaces_defined`")
+        f = forward_interface_method(Val(interface))
+        isnothing(f) && error("No interface found with name $interface -- must be one of `$forward_interfaces_available`")
 
         if interface_at_macroexpand_time(f)
             isnothing(field_funcs) && error("Expected `field` from keyword arguments for interface `$interface`")
@@ -339,14 +317,14 @@ function forward_interface_expr(T, kwargs::Dict{Symbol,Any}=Dict{Symbol,Any}(); 
 end
 
 """
-    @forward_interface T [field=_field] [interface=_interface] [map=_map] [kwargs...]
+    @forward_interface T [field=_field] [interface=name] [map=_map] [key=value...]
 
 Forwards the methods defined for `interface` to objects of type `T`
 
 # Arguments 
-`_interface` must be one of $(interfaces_defined), with `_interface` value `f` corresponding to the interface definition function `\$f_interface` (e.g., `array` => `array_interface`).
+`name` must be one of $(forward_interfaces_available), with `name` value `f` corresponding to the interface definition function `\$f_interface` (e.g., `array` => `array_interface`).
 
-If `_interface` is either `getfields` or `setfields`, then the `field` keyword argument is ignored 
+If `name` is either `getfields` or `setfields`, then the `field` keyword argument is ignored 
 
 Otherwise, `_field` must be one of the following expressions
 - `k::Symbol` or `k::QuoteNode`, or an expression of the form `getfield(_, k)`, in which case methods will be forwarded to `getfield(x, k)`
