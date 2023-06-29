@@ -7,7 +7,7 @@
 
 `ForwardMethods` provides macros that automate some of the boilerplate involved when using composition for object polymorphism. This package is essentially fancy copy + paste for forwarding function definitions. 
 
-## `@forward_methods` 
+# `@forward_methods` 
 Given a hypothetical definition for type `T` with a subfield `s` of type `S`, i.e., 
 
 ```julia
@@ -81,7 +81,7 @@ Letting `x::T` denote the object of interest, the value of the keyword argument 
 - If `_field` is an expression of the form `f(_)` for a single-argument function `f`, the method instances will be forwarded to `f(x)`
 
 
-## `@forward_interface` 
+# `@forward_interface` 
 If the type of `S` has a known interface (e.g., a fixed set of methods defined with a particular type signature), it may be more convenient to forward the entire suite of methods for that interface to objects `x::T`, rather than to specify each method signature individually.
 
 ```julia 
@@ -106,9 +106,74 @@ Note: certain methods for certain interfaces (e.g., `Base.similar` for the Array
 
 The `getfields` and `setfields` interfaces are dynamically generated based on the fields of type `T`. 
 
-When `interface=getfields`, this macro forwards methods of the form `\$field(x::T) = getfield(x, \$field)` for each `field ∈ fieldnames(T)`
+When `interface=getfields`, this macro forwards methods of the form `$field(x::T) = getfield(x, $field)` for each `field ∈ fieldnames(T)`
 
-When `interface=setfields`, this macro forwards methods of the form `\$field!(x::T, value) = setfield!(x, \$field, value)` for each `field ∈ fieldnames(T)`
+When `interface=setfields`, this macro forwards methods of the form `$field!(x::T, value) = setfield!(x, $field, value)` for each `field ∈ fieldnames(T)`
+
+# `@define_interface`
+Certain interfaces are defined for objects `x::T` that don't involve explicit forwarding to a fixed-field, per-se, but can be generally useful. 
+
+## `properties` interface 
+The `properties` interface allows a unified interface for `x::T` with subfields 
+
+```julia
+julia> struct A
+           key1::Int
+           key2::Bool
+       end
+
+julia> struct B
+           key3::String
+           key4::Float64
+       end
+
+julia> struct C
+           a::A
+           b::B
+       end
+
+julia> @define_interface C interface=properties delegated_fields=(a,b)
+
+julia> c = C(A(1, true), B("a", 0.0))
+C(A(1, true), B("a", 0.0))
+
+julia> (key1=c.key1, key2=c.key2, key3=c.key3, key4=c.key4, a=c.a, b=c.b)
+(key1 = 1, key2 = true, key3 = "a", key4 = 0.0, a = A(1, true), b = B("a", 0.0))
+```
+
+## `equality` interface
+The `equality` interface defines `Base.==` or `Base.isequal` for objects of `T` in the obvious way, i.e., 
+
+```julia
+    Base.:(==)(x::T, y::T) = all( getfield(x,k) == getfield(y,k) for k in fieldnames(T) )
+```
+
+There are some configurable options for this macro, so you can do some fancier equality comparisons such as 
+
+```julia
+julia> struct E 
+           d::Dict{Symbol,Int}
+       end
+
+julia> Base.propertynames(e::E) = collect(keys(getfield(e, :d)))
+
+julia> Base.getproperty(e::E, k::Symbol) = getfield(e, :d)[k]
+
+julia> Base.setproperty!(e::E, k::Symbol, v::Int) = getfield(e, :d)[k] = v
+
+julia> @define_interface E interface=equality compare_fields=propertynames
+
+julia> 
+
+julia> e = E(Dict(:a => 1))
+E(Dict(:a => 1))
+
+julia> e == E(Dict(:a => 1))
+true
+
+julia> e == E(Dict(:a => 2))
+false
+```
 
 
 ## Similar Packages/Functionality
