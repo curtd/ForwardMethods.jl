@@ -115,12 +115,15 @@ for f in define_interfaces_available
 end
 
 function define_interface_expr(T, kwargs::Dict{Symbol,Any}=Dict{Symbol,Any}())
-    interfaces = interface_kwarg!(kwargs, allow_multiple=false)
-    interface = only(interfaces)
+    interfaces = interface_kwarg!(kwargs)
     omit = omit_kwarg!(kwargs)
-    f = define_interface_method(Val(interface))
-    isnothing(f) && error("No interface found with name $interface -- must be one of `$define_interfaces_available`")
-    return f(T; omit, kwargs...)
+    output = Expr(:block)
+    for interface in interfaces
+        f = define_interface_method(Val(interface))
+        isnothing(f) && error("No interface found with name $interface -- must be one of `$define_interfaces_available`")
+        push!(output.args, f(T; omit, kwargs...))
+    end
+    return output
 end
 
 """
