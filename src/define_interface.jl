@@ -1,13 +1,13 @@
 define_interface_method(x) = nothing
 
 """
-    properties_interface(T; delegated_fields)
+    properties_interface(T; delegated_fields, [is_mutable=false])
 
 Given `x::T` for a struct type `T`, defines `Base.propertynames(x::T)` in terms of the `fieldnames(T)` as well as the fieldnames of `getfield(x, k)` for each `k` in `delegated_fields`.
 
 Also forwards `Base.getproperty(x::T, name::Symbol)` to  `getfield(getfield(x, k), name)` for the first `k` such that `hasfield(getfield(x, k), name)`
 
-If `T` is a mutable type, also defines `Base.setproperty!(x::T, name::Symbol, value)` in a similar fashion to the `Base.getproperty` above.
+If `T` is a mutable type, also defines `Base.setproperty!(x::T, name::Symbol, value)` in a similar fashion to the `Base.getproperty` above. This feature requires at least Julia 1.7. On older Julia versions, pass in the `is_mutable = true` keyword argument.
 
 # Arguments 
 `delegated_fields` can be either a `Symbol`, or a `vect` or `tuple` `Expr` of `Symbol`s, corresponding to fieldnames of `T`
@@ -17,6 +17,7 @@ If `T` is a mutable type, also defines `Base.setproperty!(x::T, name::Symbol, va
 function properties_interface(T; delegated_fields, kwargs...)
     delegated_fields_sym = parse_vect_of_symbols(delegated_fields; kwarg_name=:delegated_fields)
     delegated_fields_tuple = Expr(:tuple, QuoteNode.(delegated_fields_sym)...)
+    is_mutable = get_kwarg(Bool, kwargs, :is_mutable, false)
     validate_fields = Base.remove_linenums!(quote 
         Base.isstructtype($T) || error("Type "*string($T)*" is not a struct type")
 
@@ -61,7 +62,7 @@ function properties_interface(T; delegated_fields, kwargs...)
         local getproperty_body = $(gen_getproperty_body)
         local getproperty_expr = :(Base.getproperty(x::$$T, field::Symbol) = $getproperty_body)
         local output = Expr(:block, properties_expr, getproperty_expr)
-        if Base.ismutabletype($T)
+        if $is_mutable || (VERSION ≥ v"1.7" && Base.ismutabletype($T))
             local setproperty_body = $(gen_setproperty_body)
             local setproperty_expr = :(Base.setproperty!(x::$$T, field::Symbol, value) = $setproperty_body)
             push!(output.args, setproperty_expr)

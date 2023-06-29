@@ -78,7 +78,11 @@ module TestForwardMethods
         settable::SettableProperties
         key4::Float64
     end
-    @define_interface CompositeProperties interface=properties delegated_fields=settable
+    if VERSION ≥ v"1.7"
+        @define_interface CompositeProperties interface=properties delegated_fields=settable
+    else
+        @define_interface CompositeProperties interface=properties delegated_fields=settable is_mutable=true
+    end
 
     mutable struct SettableProperties2
         key4::Float64
@@ -98,7 +102,11 @@ module TestForwardMethods
         settable::SettableProperties
         alsosettable::SettableProperties2
     end
-    @define_interface CompositeProperties2 interface=properties delegated_fields=(settable, alsosettable)
+    if VERSION ≥ v"1.7"
+        @define_interface CompositeProperties2 interface=properties delegated_fields=(settable, alsosettable)
+    else
+        @define_interface CompositeProperties2 interface=properties delegated_fields=(settable, alsosettable) is_mutable=true
+    end
 
     struct ClashingKeys 
         key1::SettableProperties
