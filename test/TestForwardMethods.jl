@@ -72,7 +72,11 @@ module TestForwardMethods
         key2::Int 
         key3::Bool
     end
+    @test !ForwardMethods.has_defined_interface(SettableProperties, Val(:getfields))
+    @test !ForwardMethods.has_defined_interface(SettableProperties, Val(:setfields))
     @define_interface SettableProperties interface=(getfields, setfields)
+    @test ForwardMethods.has_defined_interface(SettableProperties, Val(:getfields))
+    @test ForwardMethods.has_defined_interface(SettableProperties, Val(:setfields))
 
     mutable struct CompositeProperties
         settable::SettableProperties
@@ -102,11 +106,15 @@ module TestForwardMethods
         settable::SettableProperties
         alsosettable::SettableProperties2
     end
+    @test !ForwardMethods.has_defined_interface(CompositeProperties2, Val(:properties))
+    @test !ForwardMethods.has_defined_interface(SettableProperties2, Val(:properties))
     if VERSION ≥ v"1.7"
         @define_interface CompositeProperties2 interface=properties delegated_fields=(settable, alsosettable)
     else
         @define_interface CompositeProperties2 interface=properties delegated_fields=(settable, alsosettable) is_mutable=true
     end
+    @test ForwardMethods.has_defined_interface(CompositeProperties2, Val(:properties))
+    @test !ForwardMethods.has_defined_interface(SettableProperties2, Val(:properties))
 
     struct ClashingKeys 
         key1::SettableProperties

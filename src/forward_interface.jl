@@ -228,7 +228,7 @@ end
 Given `x::T`, forwards the method `\$field(x::T)` to `getfield(x, \$field)`, for each `field in fieldnames(T)`
 """
 function getfields_interface(T; omit::AbstractVector{Symbol}=Symbol[])
-    return Base.remove_linenums!(quote 
+    return wrap_define_interface(T, :getfields, Base.remove_linenums!(quote 
         local omit_fields = $(Expr(:tuple, omit...))
         local fields = fieldnames($T)
         local def_fields_expr = Expr(:block)
@@ -240,7 +240,7 @@ function getfields_interface(T; omit::AbstractVector{Symbol}=Symbol[])
         end
         eval(def_fields_expr)
         nothing
-    end)
+    end))
 end
 
 interface_at_macroexpand_time(::typeof(getfields_interface)) = false
@@ -251,7 +251,7 @@ interface_at_macroexpand_time(::typeof(getfields_interface)) = false
 Given `x::T`, forwards the method `\$field!(x::T, value)` to `setfield!(x, \$field, value)`, for each `field in fieldnames(T)`
 """
 function setfields_interface(T; omit::AbstractVector{Symbol}=Symbol[])
-    return Base.remove_linenums!(quote 
+    return wrap_define_interface(T, :setfields, Base.remove_linenums!(quote 
         local omit_fields = $(Expr(:tuple, omit...))
         local fields = fieldnames($T)
         local def_fields_expr = Expr(:block)
@@ -263,7 +263,7 @@ function setfields_interface(T; omit::AbstractVector{Symbol}=Symbol[])
         end
         eval(def_fields_expr)
         nothing
-    end)
+    end))
 end
 
 interface_at_macroexpand_time(::typeof(setfields_interface)) = false

@@ -123,3 +123,9 @@ function get_kwarg(::Type{T}, kwargs, key::Symbol, default) where {T}
     value isa T || error("$key (= $value) must be a $T, got typeof($key) = $(typeof(value))")
     return value
 end
+
+has_defined_interface(T, interface) = false
+
+function wrap_define_interface(T, interface::Symbol, expr)
+    return Expr(:if, :(!(ForwardMethods.has_defined_interface($T, Val($(QuoteNode(interface)))))), Expr(:block, expr, :(ForwardMethods.has_defined_interface(::Type{$T}, ::Val{$(QuoteNode(interface))}) = true)))
+end
