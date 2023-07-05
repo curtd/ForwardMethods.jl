@@ -69,7 +69,7 @@ function properties_interface(T; delegated_fields, kwargs...)
         end
         eval(output)
     end)
-    return output
+    return wrap_define_interface(T, :properties, output)
 end
 
 """
@@ -105,7 +105,7 @@ function equality_interface(T; omit::AbstractVector{Symbol}=Symbol[], equality_o
         body = :(Base.all( $equality_op( $getvalue(x, k), $getvalue(y, k) ) for k in values if k ∉ $(Expr(:tuple, QuoteNode.(omit)...))))
     end
     equality_expr = :(Base.$equality_op(x::$T, y::$T) = $equal_properties && $body)
-    return equality_expr
+    return wrap_define_interface(T, :equality, equality_expr)
 end
 
 const define_interfaces_available = (:properties, :equality, :setfields, :getfields)
