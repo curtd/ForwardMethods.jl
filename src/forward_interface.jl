@@ -18,7 +18,7 @@ Forwards the following methods for `x::T`:
 - `Base.isdone(x::T)`
 - `Base.isdone(x::T, state)`
 
-Any function names specified in `omit::AbstractVector{Symbol}` (aside from `:iterate`) will not be defined
+Any function names specified in `omit::AbstractVector{Symbol}` will not be defined
 """
 function iteration_interface(T; omit::AbstractVector{Symbol}=Symbol[])
     t = gensym(arg_placeholder)
@@ -26,11 +26,12 @@ function iteration_interface(T; omit::AbstractVector{Symbol}=Symbol[])
     type_arg = type_argument(T)
     wrap_expr = wrap_type_expr(T)
     call_expr = (f, args...) -> wrap_expr(base_forward_expr(f, args...))
-  
-    method_signatures = Any[
-        call_expr(:(Base.iterate), obj_arg),
-        call_expr(:(Base.iterate), obj_arg, :state)
-    ]
+    
+    method_signatures = Any[]
+    if :iterate ∉ omit 
+        push!(method_signatures, call_expr(:(Base.iterate), obj_arg))
+        push!(method_signatures, call_expr(:(Base.iterate), obj_arg, :state))
+    end
     for f in (:IteratorSize, :IteratorEltype, :eltype)
         f ∈ omit && continue 
         push!(method_signatures, call_expr(:(Base.$f), type_arg))
@@ -81,7 +82,7 @@ end
 
 # Note: not a straightforward way to forward Base.similar for generic types, so it is not included here
 """
-    ForwardMethods.array(T; index_style_linear::Bool, omit=Symbol[])
+    ForwardMethods.array_interface(T; index_style_linear::Bool, omit=Symbol[])
 
 Forwards the following methods for `x::T`:
 - `Base.size(x::T)`
@@ -116,9 +117,11 @@ function array_interface(T; index_style_linear::Bool, omit::AbstractVector{Symbo
     if index_style_linear
         if :getindex ∉ omit
             push!(method_signatures, call_expr(:(Base.getindex), obj_arg, :(i::Int)))
+            push!(method_signatures, call_expr(:(Base.getindex), obj_arg, :(I::AbstractUnitRange{<:Integer})))
         end
         if :setindex! ∉ omit 
             push!(method_signatures, call_expr(:(Base.setindex!), obj_arg, :v, :(i::Int)))
+            push!(method_signatures, call_expr(:(Base.setindex!), obj_arg, :v, :(I::AbstractUnitRange{<:Integer})))
         end
     else
         if :getindex ∉ omit
@@ -132,6 +135,22 @@ function array_interface(T; index_style_linear::Bool, omit::AbstractVector{Symbo
 end
 
 interface_field_name_required(::typeof(array_interface)) = true
+
+"""
+    ForwardMethods.vector_interface(T; omit=Symbol[])
+
+Forwards the methods for `x::T` from `ForwardMethods.array_interface(T; index_style_linear=true)`, `ForwardMethods.iteration_interface(T)`, and `ForwardMethods.indexing_interface(T)`
+
+Any function names specified in `omit::AbstractVector{Symbol}` will not be defined.
+"""
+function vector_interface(T; omit::AbstractVector{Symbol}=Symbol[]) 
+    array_signatures = array_interface(T; index_style_linear=true, omit=omit)
+    iteration_signatures = iteration_interface(T; omit=union([:iterate, :length, :size], omit))
+    indexing_signatures = indexing_interface(T; omit=union([:getindex, :setindex], omit))
+    return vcat(array_signatures, iteration_signatures, indexing_signatures)
+end
+
+interface_field_name_required(::typeof(vector_interface)) = true
 
 """
     ForwardMethods.dict_interface(T; omit=Symbol[])
@@ -269,7 +288,7 @@ end
 interface_at_macroexpand_time(::typeof(setfields_interface)) = false
 
 
-const forward_interfaces_available = (:iteration, :indexing, :array, :dict, :lockable, :getfields, :setfields)
+const forward_interfaces_available = (:iteration, :indexing, :array, :vector, :dict, :lockable, :getfields, :setfields)
 
 for f in forward_interfaces_available 
     @eval forward_interface_method(::Val{$(QuoteNode(f))}) = $(Symbol(string(f)*"_interface"))
