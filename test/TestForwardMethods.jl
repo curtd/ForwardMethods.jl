@@ -40,6 +40,11 @@ module TestForwardMethods
     end
     @forward_interface ForwardVectorNoLength{T} field=v interface=array index_style_linear=true omit=[length]
 
+    struct ForwardVectorInterface{T}
+        v::Vector{T}
+    end
+    @forward_interface ForwardVectorInterface{T} field=v interface=vector
+
     struct ForwardMatrix{F}
         v::Matrix{F}
     end
@@ -324,6 +329,27 @@ module TestForwardMethods
         @Test size(f) == (0,)
         @Test length(f) == 0
         f = ForwardVector([1,3,3])
+        @test_throws_compat MethodError "MethodError: no method matching lastindex(::$ForwardVector{Int64})" f[end]
+        @Test f[1:3] == [1,3,3]
+        @Test f[2] == 3
+        f[2] = 2
+        @Test f[2] == 2
+        @Test length(f) == 3
+        for (i, fi) in enumerate(f)
+            @Test i == fi 
+        end 
+        @Test eltype(f) == Any
+
+        f = ForwardVectorInterface(Int[])
+        @Test isempty(f)
+        @Test size(f) == (0,)
+        @Test length(f) == 0
+        @Test eltype(f) == Int
+        @Test eltype(ForwardVectorInterface{Int}) == Int
+        f = ForwardVectorInterface([1,3,3])
+        @Test f[begin] == 1
+        @Test f[end] == 3
+        @Test f[begin:end] == [1,3,3]
         @Test f[2] == 3
         f[2] = 2
         @Test f[2] == 2
