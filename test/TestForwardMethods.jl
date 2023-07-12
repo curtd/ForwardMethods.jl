@@ -422,6 +422,11 @@ module TestForwardMethods
         @Test c.alsosettable == SettableProperties2(1.0, [0])
         @Test c.alsosettable != SettableProperties2(1.0, [1])
 
+        c.alsosettable = SettableProperties2(2.0, [1])
+        @Test c.alsosettable == SettableProperties2(2.0, [1])
+        @Test c.key4 == 2.0
+        @Test c.key5 == [1]
+        
         e = EqualityUsingProperties(Dict(:a => 1))
         @Test e == EqualityUsingProperties(Dict(:a => 1))
         @Test e != EqualityUsingProperties(Dict(:a => 1, :b => 2))
