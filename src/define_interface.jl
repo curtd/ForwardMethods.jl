@@ -41,7 +41,7 @@ function properties_interface(T; delegated_fields, kwargs...)
         for (k,v) in pairs(delegated_fieldnames)
             push!(setpropertybody.args, :( if field in $(Expr(:tuple, QuoteNode.(v)...)); return Base.setproperty!(Base.getfield(x, $(QuoteNode(k))), field, value) end ))
         end
-        push!(setpropertybody.args, :(return Base.setproperty!(x, field, value)))
+        push!(setpropertybody.args, :(return Base.setfield!(x, field, value)))
         setpropertybody
     end
         
