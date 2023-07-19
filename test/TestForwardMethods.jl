@@ -83,6 +83,13 @@ module TestForwardMethods
     @test ForwardMethods.has_defined_interface(SettableProperties, Val(:getfields))
     @test ForwardMethods.has_defined_interface(SettableProperties, Val(:setfields))
 
+    mutable struct SettablePropertiesNoKey2Key3
+        key1::String 
+        key2::Int 
+        key3::Bool
+    end
+    @define_interface SettablePropertiesNoKey2Key3 interface=(getfields, setfields) omit=(key2, key3)
+  
     mutable struct CompositeProperties
         settable::SettableProperties
         key4::Float64
@@ -430,5 +437,20 @@ module TestForwardMethods
         e = EqualityUsingProperties(Dict(:a => 1))
         @Test e == EqualityUsingProperties(Dict(:a => 1))
         @Test e != EqualityUsingProperties(Dict(:a => 1, :b => 2))
+
+        @test hasmethod(key1, Tuple{SettableProperties})
+        @test hasmethod(key1!, Tuple{SettableProperties, String})
+        @test hasmethod(key2, Tuple{SettableProperties})
+        @test hasmethod(key2!, Tuple{SettableProperties, Int})
+        @test hasmethod(key3, Tuple{SettableProperties})
+        @test hasmethod(key3!, Tuple{SettableProperties, Bool})
+        
+        @test hasmethod(key1, Tuple{SettablePropertiesNoKey2Key3})
+        @test hasmethod(key1!, Tuple{SettablePropertiesNoKey2Key3, String})
+        @test !hasmethod(key2, Tuple{SettablePropertiesNoKey2Key3})
+        @test !hasmethod(key2!, Tuple{SettablePropertiesNoKey2Key3, Int})
+        @test !hasmethod(key3, Tuple{SettablePropertiesNoKey2Key3})
+        @test !hasmethod(key3!, Tuple{SettablePropertiesNoKey2Key3, Bool})
+        
     end
 end

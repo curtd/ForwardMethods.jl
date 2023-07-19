@@ -248,7 +248,7 @@ Given `x::T`, forwards the method `\$field(x::T)` to `getfield(x, \$field)`, for
 """
 function getfields_interface(T; omit::AbstractVector{Symbol}=Symbol[])
     return wrap_define_interface(T, :getfields, Base.remove_linenums!(quote 
-        local omit_fields = $(Expr(:tuple, omit...))
+        local omit_fields = $(Expr(:tuple, QuoteNode.(omit)...))
         local fields = fieldnames($T)
         local def_fields_expr = Expr(:block)
         local var = gensym("x")
@@ -271,7 +271,7 @@ Given `x::T`, forwards the method `\$field!(x::T, value)` to `setfield!(x, \$fie
 """
 function setfields_interface(T; omit::AbstractVector{Symbol}=Symbol[])
     return wrap_define_interface(T, :setfields, Base.remove_linenums!(quote 
-        local omit_fields = $(Expr(:tuple, omit...))
+        local omit_fields = $(Expr(:tuple, QuoteNode.(omit)...))
         local fields = fieldnames($T)
         local def_fields_expr = Expr(:block)
         local var = gensym("x")
