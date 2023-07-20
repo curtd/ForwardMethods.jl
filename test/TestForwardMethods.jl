@@ -30,7 +30,9 @@ module TestForwardMethods
         v::Vector{Int}
     end
     @forward_methods A field=v Base.length(x::A) Base.getindex(_, k) Base.eltype(::Type{A})
-    @forward_interface A field=v interface=custom
+    if VERSION < v"1.10"
+        @forward_interface A field=v interface=custom
+    end
 
     test_func(v::Vector) = v[1]
 
