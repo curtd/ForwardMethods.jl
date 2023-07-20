@@ -1,4 +1,5 @@
-forward_interface_method(x) = nothing
+function forward_interface_method end 
+
 interface_field_name_required(x) = false 
 interface_at_macroexpand_time(x) = true
 base_forward_expr(f, args...) = Expr(:call, f, args...)
@@ -246,7 +247,7 @@ end
 
 Given `x::T`, forwards the method `\$field(x::T)` to `getfield(x, \$field)`, for each `field in fieldnames(T)`
 """
-function getfields_interface(T; omit::AbstractVector{Symbol}=Symbol[])
+function getfields_interface(T; field::Union{Nothing,Symbol}=nothing, omit::AbstractVector{Symbol}=Symbol[])
     return wrap_define_interface(T, :getfields, Base.remove_linenums!(quote 
         local omit_fields = $(Expr(:tuple, QuoteNode.(omit)...))
         local fields = fieldnames($T)
@@ -269,7 +270,7 @@ interface_at_macroexpand_time(::typeof(getfields_interface)) = false
 
 Given `x::T`, forwards the method `\$field!(x::T, value)` to `setfield!(x, \$field, value)`, for each `field in fieldnames(T)`
 """
-function setfields_interface(T; omit::AbstractVector{Symbol}=Symbol[])
+function setfields_interface(T; field::Union{Nothing,Symbol}=nothing, omit::AbstractVector{Symbol}=Symbol[])
     return wrap_define_interface(T, :setfields, Base.remove_linenums!(quote 
         local omit_fields = $(Expr(:tuple, QuoteNode.(omit)...))
         local fields = fieldnames($T)
@@ -287,11 +288,16 @@ end
 
 interface_at_macroexpand_time(::typeof(setfields_interface)) = false
 
+const default_forward_interfaces = (:iteration, :indexing, :array, :vector, :dict, :lockable, :getfields, :setfields) 
 
-const forward_interfaces_available = (:iteration, :indexing, :array, :vector, :dict, :lockable, :getfields, :setfields)
-
-for f in forward_interfaces_available 
+for f in default_forward_interfaces
     @eval forward_interface_method(::Val{$(QuoteNode(f))}) = $(Symbol(string(f)*"_interface"))
+end
+
+@static if VERSION < v"1.10"
+    @method_def_constant forward_interface_method(::Val{::Symbol}) forward_interfaces_available
+else
+    forward_interfaces_available() = default_forward_interfaces
 end
 
 function forward_interface_expr(T, kwargs::Dict{Symbol,Any}=Dict{Symbol,Any}(); _sourceinfo=nothing)
@@ -312,9 +318,13 @@ function forward_interface_expr(T, kwargs::Dict{Symbol,Any}=Dict{Symbol,Any}(); 
     end
 
     _output = Expr(:block)
+
+    available_interfaces = forward_interfaces_available()
+
     for interface in interfaces
+        interface in available_interfaces || error("No interface found with name $interface -- must be one of `$available_interfaces`")
+
         f = forward_interface_method(Val(interface))
-        isnothing(f) && error("No interface found with name $interface -- must be one of `$forward_interfaces_available`")
 
         if interface_at_macroexpand_time(f)
             isnothing(field_funcs) && error("Expected `field` from keyword arguments for interface `$interface`")
@@ -341,7 +351,7 @@ end
 Forwards the methods defined for `interface` to objects of type `T`
 
 # Arguments 
-`name` must be one of $(forward_interfaces_available), with `name` value `f` corresponding to the interface definition function `\$f_interface` (e.g., `array` => `array_interface`).
+`name` must be one of $(default_forward_interfaces), with `name` value `f` corresponding to the interface definition function `\$f_interface` (e.g., `array` => `array_interface`).
 
 If `name` is either `getfields` or `setfields`, then the `field` keyword argument is ignored 
 

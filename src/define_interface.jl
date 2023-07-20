@@ -1,5 +1,3 @@
-define_interface_method(x) = nothing
-
 """
     properties_interface(T; delegated_fields, [is_mutable=false])
 
@@ -11,7 +9,6 @@ If `T` is a mutable type, also defines `Base.setproperty!(x::T, name::Symbol, va
 
 # Arguments 
 `delegated_fields` can be either a `Symbol`, or a `vect` or `tuple` `Expr` of `Symbol`s, corresponding to fieldnames of `T`
-
 
 """
 function properties_interface(T; delegated_fields, kwargs...)
@@ -108,19 +105,26 @@ function equality_interface(T; omit::AbstractVector{Symbol}=Symbol[], equality_o
     return wrap_define_interface(T, :equality, equality_expr)
 end
 
-const define_interfaces_available = (:properties, :equality, :setfields, :getfields)
+const default_define_interfaces = (:properties, :equality, :setfields, :getfields)
 
-for f in define_interfaces_available
+for f in default_define_interfaces
     @eval define_interface_method(::Val{$(QuoteNode(f))}) = $(Symbol(string(f)*"_interface"))
+end
+
+@static if VERSION < v"1.10"
+    @method_def_constant define_interface_method(::Val{::Symbol}) define_interfaces_available
+else
+    define_interfaces_available() = default_define_interfaces
 end
 
 function define_interface_expr(T, kwargs::Dict{Symbol,Any}=Dict{Symbol,Any}())
     interfaces = interface_kwarg!(kwargs)
     omit = omit_kwarg!(kwargs)
     output = Expr(:block)
+    interfaces_available = define_interfaces_available()
     for interface in interfaces
+        interface in interfaces_available || error("No interface found with name $interface -- must be one of `$interfaces_available`")
         f = define_interface_method(Val(interface))
-        isnothing(f) && error("No interface found with name $interface -- must be one of `$define_interfaces_available`")
         push!(output.args, f(T; omit, kwargs...))
     end
     return output
@@ -132,7 +136,7 @@ end
 Defines the `interface` for objects of type `T`
 
 # Arguments 
-`name` must be one of $(define_interfaces_available), with `name` value `f` corresponding to the interface definition function `\$f_interface` (e.g., `array` => `array_interface`).
+`name` must be one of $(default_define_interfaces), with `name` value `f` corresponding to the interface definition function `\$f_interface` (e.g., `array` => `array_interface`).
 
 The `key=value` pairs will be forwarded to the corresponding interface definition method. In particular, specifying `omit=func1` or `omit=[func1,func2, ..., funcn]` will omit `func1`, ..., `funcn` from being forwarded by this macro.
 
