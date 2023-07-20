@@ -18,11 +18,11 @@ module TestForwardMethods
     function custom_interface(T; omit::AbstractVector{Symbol}=Symbol[])
         return [:custom_func_to_forward]
     end
-    if VERSION < v"1.10"
+    @static if VERSION < v"1.10"
         @Test !(:custom in ForwardMethods.forward_interfaces_available())
     end
     ForwardMethods.forward_interface_method(::Val{:custom}) = custom_interface
-    if VERSION < v"1.10"
+    @static if VERSION < v"1.10"
         @Test :custom in ForwardMethods.forward_interfaces_available()
     end
 
@@ -30,7 +30,7 @@ module TestForwardMethods
         v::Vector{Int}
     end
     @forward_methods A field=v Base.length(x::A) Base.getindex(_, k) Base.eltype(::Type{A})
-    if VERSION < v"1.10"
+    @static if VERSION < v"1.10"
         @forward_interface A field=v interface=custom
     end
 
@@ -315,7 +315,9 @@ module TestForwardMethods
             @test matches
         end
 
-        @Test custom_func_to_forward(A([0])) == 0
+        @static if VERSION < v"1.10"
+            @Test custom_func_to_forward(A([0])) == 0
+        end
         @Test length(A([0])) == 1
         @Test A([0])[1] == 0
         @Test eltype(A) == Int
