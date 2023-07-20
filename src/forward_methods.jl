@@ -228,7 +228,7 @@ function forward_methods_expr(Type, field_expr, args...; _sourceinfo=nothing)
 
     output = Expr(:block)
     for arg in method_exprs
-        push!(output.args, forward_method_signature(Type, field_funcs, arg; _sourceinfo))
+        push!(output.args, forward_method_signature(Type, field_funcs, map_func,  arg; _sourceinfo))
     end
     return output
 end
