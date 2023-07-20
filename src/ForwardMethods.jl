@@ -1,5 +1,5 @@
 module ForwardMethods
-    using MLStyle 
+    using MacroUtilities, MLStyle
     
     export @forward_methods, @forward_interface, @define_interface
 
