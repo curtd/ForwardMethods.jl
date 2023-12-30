@@ -88,14 +88,9 @@ function replace_first_arg_in_call_func(ex::Expr)
 end
 
 function parse_vect_of_symbols(expr; kwarg_name::Symbol)
-    @switch expr begin 
-        @case ::Symbol 
-            return Symbol[expr]
-        @case (Expr(:vect, args...) || Expr(:tuple, args...)) && if all(arg isa Symbol for arg in args) end
-            return convert(Vector{Symbol}, collect(args))
-        @case _ 
-            error("`$kwarg_name` (= $expr) must be a Symbol or a `vect` expression of Symbols")
-    end
+    syms = from_expr(Vector{Symbol}, expr; throw_error=false)
+    isnothing(syms) && error("`$kwarg_name` (= $expr) must be a Symbol or a `vect` expression of Symbols")
+    return syms
 end
 
 function interface_kwarg!(kwargs::Dict{Symbol,Any}; allow_multiple::Bool=true)
