@@ -4,6 +4,15 @@ interface_field_name_required(x) = false
 interface_at_macroexpand_time(x) = true
 base_forward_expr(f, args...) = Expr(:call, f, args...)
 
+function forward_interface_args(T)
+    t = gensym(arg_placeholder)
+    obj_arg = object_argument(t, T)
+    type_arg = type_argument(T)
+    wrap_expr = wrap_type_expr(T)
+    call_expr = (f, args...) -> wrap_expr(base_forward_expr(f, args...))
+    return obj_arg, type_arg, call_expr
+end
+
 # Iteration, indexing, array interface methods from https://docs.julialang.org/en/v1/manual/interfaces/#Interfaces
 """
     ForwardMethods.iteration_interface(T; omit=Symbol[])
@@ -22,11 +31,7 @@ Forwards the following methods for `x::T`:
 Any function names specified in `omit::AbstractVector{Symbol}` will not be defined
 """
 function iteration_interface(T; omit::AbstractVector{Symbol}=Symbol[])
-    t = gensym(arg_placeholder)
-    obj_arg = object_argument(t, T)
-    type_arg = type_argument(T)
-    wrap_expr = wrap_type_expr(T)
-    call_expr = (f, args...) -> wrap_expr(base_forward_expr(f, args...))
+    obj_arg, type_arg, call_expr = forward_interface_args(T)
     
     method_signatures = Any[]
     if :iterate ∉ omit 
@@ -61,11 +66,8 @@ Forwards the following methods for `x::T`:
 Any function names specified in `omit::AbstractVector{Symbol}` will not be defined
 """
 function indexing_interface(T; omit::AbstractVector{Symbol}=Symbol[])
-    t = gensym(arg_placeholder)
-    obj_arg = object_argument(t, T)
+    obj_arg, _, call_expr = forward_interface_args(T)
     method_signatures = Any[]
-    wrap_expr = wrap_type_expr(T)
-    call_expr = (f, args...) -> wrap_expr(base_forward_expr(f, args...))
     if :getindex ∉ omit 
         push!(method_signatures, call_expr(:(Base.getindex), obj_arg, :i))
     end
@@ -100,11 +102,7 @@ according to the value of `index_style_linear`
 Any function names specified in `omit::AbstractVector{Symbol}` will not be defined
 """
 function array_interface(T; index_style_linear::Bool, omit::AbstractVector{Symbol}=Symbol[])
-    t = gensym(arg_placeholder)
-    obj_arg = object_argument(t, T)
-    type_arg = type_argument(T)
-    wrap_expr = wrap_type_expr(T)
-    call_expr = (f, args...) -> wrap_expr(base_forward_expr(f, args...))
+    obj_arg, type_arg, call_expr = forward_interface_args(T)
 
     method_signatures = Any[
         call_expr(:(Base.$f), obj_arg) for f in (:size, :iterate, :length) if f ∉ omit
@@ -177,11 +175,7 @@ Forwards the following methods for `x::T`:
 Any function names specified in `omit::AbstractVector{Symbol}` will not be defined
 """
 function dict_interface(T; omit::AbstractVector{Symbol}=Symbol[])
-    t = gensym(arg_placeholder)
-    obj_arg = object_argument(t, T)
-    type_arg = type_argument(T)
-    wrap_expr = wrap_type_expr(T)
-    call_expr = (f, args...) -> wrap_expr(base_forward_expr(f, args...))
+    obj_arg, type_arg, call_expr = forward_interface_args(T)
     method_signatures = Any[
         call_expr(:(Base.$f), obj_arg) for f in (:keys, :values, :pairs, :length, :isempty, :empty!, :iterate) if f ∉ omit
     ]
@@ -229,10 +223,7 @@ Forwards the following methods for `x::T`:
 Any function names specified in `omit::AbstractVector{Symbol}` will not be defined
 """
 function lockable_interface(T; omit::AbstractVector{Symbol}=Symbol[])
-    t = gensym(arg_placeholder)
-    obj_arg = object_argument(t, T)
-    wrap_expr = wrap_type_expr(T)
-    call_expr = (f, args...) -> wrap_expr(base_forward_expr(f, args...))
+    obj_arg, _, call_expr = forward_interface_args(T)
     method_signatures = Any[
         call_expr(:(Base.$f), obj_arg) for f in (:lock, :unlock, :trylock, :islocked) if f ∉ omit
     ]
@@ -294,11 +285,7 @@ for f in default_forward_interfaces
     @eval forward_interface_method(::Val{$(QuoteNode(f))}) = $(Symbol(string(f)*"_interface"))
 end
 
-@static if VERSION < v"1.10"
-    @method_def_constant forward_interface_method(::Val{::Symbol}) forward_interfaces_available
-else
-    forward_interfaces_available() = default_forward_interfaces
-end
+@method_def_constant forward_interface_method(::Val{::Symbol}) forward_interfaces_available
 
 function forward_interface_expr(T, kwargs::Dict{Symbol,Any}=Dict{Symbol,Any}(); _sourceinfo=nothing)
     interfaces = interface_kwarg!(kwargs)

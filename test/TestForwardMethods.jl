@@ -18,21 +18,20 @@ module TestForwardMethods
     function custom_interface(T; omit::AbstractVector{Symbol}=Symbol[])
         return [:custom_func_to_forward]
     end
-    @static if VERSION < v"1.10"
-        @Test !(:custom in ForwardMethods.forward_interfaces_available())
-    end
+
+    @Test !(:custom in ForwardMethods.forward_interfaces_available())
+   
     ForwardMethods.forward_interface_method(::Val{:custom}) = custom_interface
-    @static if VERSION < v"1.10"
-        @Test :custom in ForwardMethods.forward_interfaces_available()
-    end
+   
+    @Test :custom in ForwardMethods.forward_interfaces_available()
+   
 
     struct A
         v::Vector{Int}
     end
     @forward_methods A field=v Base.length(x::A) Base.getindex(_, k) Base.eltype(::Type{A})
-    @static if VERSION < v"1.10"
-        @forward_interface A field=v interface=custom
-    end
+    
+    @forward_interface A field=v interface=custom
 
     test_func(v::Vector) = v[1]
 

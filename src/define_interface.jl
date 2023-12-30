@@ -45,7 +45,7 @@ function properties_interface(T; delegated_fields, kwargs...)
     output = Expr(:block, validate_fields)
     push!(output.args, quote 
         local fields = fieldnames($T)
-        local delegated_fieldnames = $(Expr(:tuple, Expr(:parameters, [Expr(:kw, k, :(Base.fieldnames(Base.fieldtype($T, $(QuoteNode(k)))))) for k in delegated_fields_sym]...)))
+        local delegated_fieldnames = $(Expr(:tuple, Expr(:parameters, [Expr(:kw, k, :($Base.fieldnames($Base.fieldtype($T, $(QuoteNode(k)))))) for k in delegated_fields_sym]...)))
         local all_fields = tuple(Iterators.flatten([collect(fields), Iterators.flatten(values(delegated_fieldnames))])...)
         local unique_field_count = Dict{Symbol,Int}()
         for f in all_fields
@@ -55,13 +55,13 @@ function properties_interface(T; delegated_fields, kwargs...)
         isempty(duplicate_fields) || error("Type "* string($T) * " has duplicate field names between itself and/or its requested fields (= $(keys(delegated_fieldnames))) -- duplicate field names = $(Symbol.(sort!(string.(duplicate_fields))))")
         
         local properties_body = $(properties_body)
-        local properties_expr = :(Base.propertynames(x::$$T) = $properties_body)
+        local properties_expr = :($Base.propertynames(x::$$T) = $properties_body)
         local getproperty_body = $(gen_getproperty_body)
-        local getproperty_expr = :(Base.getproperty(x::$$T, field::Symbol) = $getproperty_body)
+        local getproperty_expr = :($Base.getproperty(x::$$T, field::Symbol) = $getproperty_body)
         local output = Expr(:block, properties_expr, getproperty_expr)
         if $is_mutable || (VERSION ≥ v"1.7" && Base.ismutabletype($T))
             local setproperty_body = $(gen_setproperty_body)
-            local setproperty_expr = :(Base.setproperty!(x::$$T, field::Symbol, value) = $setproperty_body)
+            local setproperty_expr = :($Base.setproperty!(x::$$T, field::Symbol, value) = $setproperty_body)
             push!(output.args, setproperty_expr)
         end
         eval(output)
@@ -88,20 +88,20 @@ Any values provided in `omit` are excluded from the generator expression above.
 function equality_interface(T; omit::AbstractVector{Symbol}=Symbol[], equality_op::Symbol=:(==), compare_fields::Symbol=:fieldnames)
     equality_op in (:(==), :isequal) || error("equality_op (= $equality_op) must be one of (==, isequal)")
     if compare_fields == :fieldnames 
-        getvalue = :(Base.getfield)
-        equal_properties = Expr(:block, :(values = fieldnames($T)), true)
+        getvalue = :($Base.getfield)
+        equal_properties = Expr(:block, :(values = $Base.fieldnames($T)), true)
     elseif compare_fields == :propertynames
-        getvalue = :(Base.getproperty)
-        equal_properties = Expr(:block, :(values = Base.propertynames(x)), :(values == Base.propertynames(y)))
+        getvalue = :($Base.getproperty)
+        equal_properties = Expr(:block, :(values = $Base.propertynames(x)), :(values == $Base.propertynames(y)))
     else
         error("compare_fields (= $compare_fields) must be one of (fieldnames, propertynames)")
     end
     if isempty(omit)
-        body = :(Base.all( $equality_op( $getvalue(x, k), $getvalue(y, k) ) for k in values ))
+        body = :($Base.all( $equality_op( $getvalue(x, k), $getvalue(y, k) ) for k in values ))
     else
-        body = :(Base.all( $equality_op( $getvalue(x, k), $getvalue(y, k) ) for k in values if k ∉ $(Expr(:tuple, QuoteNode.(omit)...))))
+        body = :($Base.all( $equality_op( $getvalue(x, k), $getvalue(y, k) ) for k in values if k ∉ $(Expr(:tuple, QuoteNode.(omit)...))))
     end
-    equality_expr = :(Base.$equality_op(x::$T, y::$T) = $equal_properties && $body)
+    equality_expr = :($Base.$equality_op(x::$T, y::$T) = $equal_properties && $body)
     return wrap_define_interface(T, :equality, equality_expr)
 end
 
@@ -111,11 +111,7 @@ for f in default_define_interfaces
     @eval define_interface_method(::Val{$(QuoteNode(f))}) = $(Symbol(string(f)*"_interface"))
 end
 
-@static if VERSION < v"1.10"
-    @method_def_constant define_interface_method(::Val{::Symbol}) define_interfaces_available
-else
-    define_interfaces_available() = default_define_interfaces
-end
+@method_def_constant define_interface_method(::Val{::Symbol}) define_interfaces_available
 
 function define_interface_expr(T, kwargs::Dict{Symbol,Any}=Dict{Symbol,Any}())
     interfaces = interface_kwarg!(kwargs)
