@@ -111,7 +111,11 @@ for f in default_define_interfaces
     @eval define_interface_method(::Val{$(QuoteNode(f))}) = $(Symbol(string(f)*"_interface"))
 end
 
-@method_def_constant define_interface_method(::Val{::Symbol}) define_interfaces_available
+if VERSION ≥ v"1.10.0-DEV.609"
+    define_interfaces_available() = Symbol[_val_type(fieldtype(m.sig, 2)) for m in Base.methods(define_interface_method)]
+else
+    @method_def_constant define_interface_method(::Val{::Symbol}) define_interfaces_available
+end
 
 function define_interface_expr(T, kwargs::Dict{Symbol,Any}=Dict{Symbol,Any}())
     interfaces = interface_kwarg!(kwargs)
