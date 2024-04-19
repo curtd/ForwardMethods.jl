@@ -102,9 +102,6 @@ function properties_interface(T; delegated_fields, recursive::Bool=false, ensure
     obj = gensym(:_obj)
     name = gensym(:_name)
     value = gensym(:_value)
-    # obj_arg = FuncArg(; name=obj, type=T)
-    # name_arg = FuncArg(; name=name, type=:($Base.Symbol))
-    # value_arg = FuncArg(; name=value)
     _propertynamesT = :($ForwardMethods._propertynames(::Type{$T}) = $ForwardMethods._propertynames($T, $delegated_fields_tuple_type))
     _propertynames = :($ForwardMethods._propertynames($obj::$T) = $ForwardMethods._propertynames($T))
     propertynames = :($Base.propertynames($obj::$T) = $ForwardMethods._propertynames($obj))
@@ -112,16 +109,6 @@ function properties_interface(T; delegated_fields, recursive::Bool=false, ensure
     getproperty = :($Base.getproperty($obj::$T, $name::Symbol) = $ForwardMethods._getproperty($obj, $name))
     _setproperty = :($ForwardMethods._setproperty!($obj::$T, $name::Symbol, $value) = $ForwardMethods._setproperty!($obj, $delegated_fields_tuple_type, $name, $value))
     setproperty = :($Base.setproperty!($obj::$T, $name::Symbol, $value) = $ForwardMethods._setproperty!($obj, $name, $value))
-
-
-    #_propertynames = FuncDef(; header=FuncCall(; funcname=:($ForwardMethods._propertynames), args=[obj_arg]), head=:(=), line=_sourceinfo, body=:($ForwardMethods._propertynames($obj, $delegated_fields_tuple_type))) |> to_expr
-    #_propertynamesT = FuncDef(; header=FuncCall(; funcname=:($ForwardMethods._propertynames), args=[FuncArg(; type=:(Type{$T}))]), head=:(=), line=_sourceinfo, body=:($ForwardMethods._propertynames($T, $delegated_fields_tuple_type))) |> to_expr
-
-#    propertynames = FuncDef(; header=FuncCall(; funcname=:($Base.propertynames), args=[obj_arg]), head=:(=), line=_sourceinfo, body=:($ForwardMethods._propertynames($obj))) |> to_expr
-    # _getproperty = FuncDef(; header=FuncCall(; funcname=:($ForwardMethods._getproperty), args=[obj_arg, name_arg]), head=:(=), line=_sourceinfo, body=:($ForwardMethods._getproperty($obj, $delegated_fields_tuple_type, $name))) |> to_expr
-    # getproperty = FuncDef(; header=FuncCall(; funcname=:($Base.getproperty), args=[obj_arg, name_arg]), head=:(=), line=_sourceinfo, body=:($ForwardMethods._getproperty($obj, $name))) |> to_expr
-    # _setproperty = FuncDef(; header=FuncCall(; funcname=:($ForwardMethods._setproperty!), args=[obj_arg, name_arg, value_arg]), head=:(=), line=_sourceinfo, body=:($ForwardMethods._setproperty!($obj, $delegated_fields_tuple_type, $name, $value))) |> to_expr
-    # setproperty = FuncDef(; header=FuncCall(; funcname=:($Base.setproperty!), args=[obj_arg, name_arg, value_arg]), head=:(=), line=_sourceinfo, body=:($ForwardMethods._setproperty!($obj, $name, $value))) |> to_expr
 
     output = Expr(:block, line_num)
     if ensure_unique
