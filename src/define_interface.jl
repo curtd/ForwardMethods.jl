@@ -1,71 +1,136 @@
+_propertynames(T::Type) = Base.fieldnames(T)
+_propertynames(x) = Base.propertynames(x)
+
+@generated function validate_properties(::Type{S}, delegated_fieldnames::Type{T}) where {S, T <: Tuple}
+    output = Expr(:block, :(unique_properties = Set{Symbol}($Base.fieldnames($S))))
+    recursive = fieldtype(T, 1) === Val{:recursive}
+    for i in 2:fieldcount(T)
+        key = fieldtype(T, i)
+        props = Symbol(key, :_properties)
+        child_T = fieldtype(S, key)
+        if recursive 
+            push!(output.args, :($props = Set{Symbol}( $_propertynames($child_T))))
+        else
+            push!(output.args, :($props = Set{Symbol}( $fieldnames($child_T))))
+        end
+
+        push!( output.args, :( diff = $intersect(unique_properties, $(props)) ), :(!isempty(diff) && error("Duplicate properties `$(sort(collect(diff)))` found for type $($(S)) in child `$($(QuoteNode(key)))::$($(child_T))` ")), :($union!(unique_properties, $props)))
+    end
+    push!(output.args, :(return nothing))
+    return output
+end
+
+@generated function _propertynames(::Type{S}, delegated_fields::Type{T}) where {S, T <: Tuple}
+    Base.isstructtype(S) || error("$S is not a struct type")
+    output = Expr(:tuple, QuoteNode.(fieldnames(S))...)
+    recursive = fieldtype(T, 1) === Val{:recursive}
+    for i in 2:fieldcount(T)
+        key = fieldtype(T,i)
+        Si = fieldtype(S, key)
+        push!(output.args, recursive ? :($_propertynames($(Si))...) : :($fieldnames($(Si))...))
+    end
+    return output
+end
+_propertynames(x, delegated_fields) = _propertynames(typeof(x), delegated_fields)
+
+_hasproperty(T::Type, key::Symbol) = Base.hasfield(T, key)
+_hasproperty(x, key::Symbol) = key in _propertynames(x)
+
+_getproperty(x, property::Symbol) = Base.getproperty(x, property)
+
+@generated function _getproperty(x, delegated_fields::Type{T}, property::Symbol) where {T <: Tuple}
+    if_else_exprs = Pair{Any,Any}[]
+    recursive = fieldtype(T, 1) === Val{:recursive}
+    for i in 2:fieldcount(T)
+        key = fieldtype(T, i)
+        if recursive
+            push!( if_else_exprs, :((t = $Base.getfield(x, $(QuoteNode(key))); $_hasproperty(t, property) )) => :( return $Base.getproperty( t, property ) ) )
+        else
+            push!(if_else_exprs, :( $Base.hasfield($fieldtype($(x), $(QuoteNode(key))), property) ) => :( return $Base.getfield( $Base.getfield(x, $(QuoteNode(key))), property) ))
+        end
+    end
+    else_expr = :(return $Base.getfield(x, property))
+    return IfElseExpr(; if_else_exprs, else_expr) |> to_expr
+end
+
+@generated function _setproperty!(x, delegated_fields::Type{T}, property::Symbol, v) where {T <: Tuple}
+    if_else_exprs = Pair{Any,Any}[]
+    recursive = fieldtype(T, 1) === Val{:recursive}
+    for i in 2:fieldcount(T)
+        key = fieldtype(T, i)
+        if recursive
+            push!( if_else_exprs, :((t = $Base.getfield(x, $(QuoteNode(key))); $_hasproperty(t, property) )) => :( return $Base.setproperty!( t, property, v ) ) )
+        else 
+            push!(if_else_exprs, :( $Base.hasfield(fieldtype($(x), $(QuoteNode(key))), property) ) => :( return $Base.setfield!( $Base.getfield(x, $(QuoteNode(key))), property, v) ))
+        end
+    end
+    else_expr = :(return $Base.setfield!(x, property, v))
+    return IfElseExpr(; if_else_exprs, else_expr) |> to_expr
+end
+
 """
-    properties_interface(T; delegated_fields, [is_mutable=false])
+    properties_interface(T; delegated_fields, [recursive::Bool=false], [ensure_unique::Bool=true])
 
-Given `x::T` for a struct type `T`, defines `Base.propertynames(x::T)` in terms of the `fieldnames(T)` as well as the fieldnames of `getfield(x, k)` for each `k` in `delegated_fields`.
+Provides amalgamated property-based access to `x::T` in terms of its fields as well as the fields of its children. So that, i.e., the fact that `x` is composed of fields `k1::T1, k2::T2, ..., kn::Tn` becomes an implementation detail of the construction of `x`. 
 
-Also forwards `Base.getproperty(x::T, name::Symbol)` to  `getfield(getfield(x, k), name)` for the first `k` such that `hasfield(getfield(x, k), name)`
+More specifically, given the set of symbols `delegated_fields` and `x::T` for a struct type `T`, defines:
 
-If `T` is a mutable type, also defines `Base.setproperty!(x::T, name::Symbol, value)` in a similar fashion to the `Base.getproperty` above. This feature requires at least Julia 1.7. On older Julia versions, pass in the `is_mutable = true` keyword argument.
+- `Base.propertynames(x::T)` in terms of `fieldnames(T)`, as well as the `fieldnames` of `getfield(x, k)` for each `k` in `delegated_fields`. 
+- `Base.getproperty(x::T, name::Symbol)` to return `getfield(getfield(x, k), name)` for the first `k ∈ delegated_fields` such that `hasfield(getfield(x, k), name)`. If no such `k` exists, defaults to returning `getfield(x, name)`.
+- and analogously for `Base.setproperty!(x::T, name::Symbol, value)`
+
+If `recursive == true`, instances of `getfield/hasfield/setfield` in the above are replaced by internal methods that default to `Base.getproperty/Base.setproperty/Base.hasproperty`, respectively.
+
+If `ensure_unique == true`, throws an error when there are nonunique names in the amalgamation of the fields of `x` with the fields/recursive properties of each field in `delegated_fields`. If this option is `false`, any of the above setting/getting operations above will use the first (possibly recursive) child field found matching the above criteria. 
 
 # Arguments 
 `delegated_fields` can be either a `Symbol`, or a `vect` or `tuple` `Expr` of `Symbol`s, corresponding to fieldnames of `T`
 
 """
-function properties_interface(T; delegated_fields, kwargs...)
+function properties_interface(T; delegated_fields, recursive::Bool=false, ensure_unique::Bool=true, kwargs...)
+    if haskey(kwargs, :is_mutable)
+        Base.depwarn("Passing `is_mutable` kwarg when `interface=properties` is now deprecated", Symbol("@define_interface"))
+        is_mutable = get_kwarg(Bool, kwargs, :is_mutable, false)
+    else 
+        is_mutable = true
+    end
     delegated_fields_sym = parse_vect_of_symbols(delegated_fields; kwarg_name=:delegated_fields)
-    delegated_fields_tuple = Expr(:tuple, QuoteNode.(delegated_fields_sym)...)
-    is_mutable = get_kwarg(Bool, kwargs, :is_mutable, false)
-    validate_fields = Base.remove_linenums!(quote 
-        Base.isstructtype($T) || error("Type "*string($T)*" is not a struct type")
+    delegated_fields_tuple_type = :($Tuple{$Val{$(QuoteNode(recursive ? :recursive : :non_recursive))}, $(QuoteNode.(delegated_fields_sym)...)})
+    line_num = current_line_num[]
+    linenum! = t-> func_def_line_num!(t, something(line_num, not_provided))
 
-        for field in $delegated_fields_tuple 
-            hasfield($T, field) || error("Type "*string($T)*" does not have field :$field")
-        end
-    end)
-    
-    properties_body = :(Expr(:tuple, QuoteNode.(all_fields)...))
-    gen_getproperty_body = quote 
-        local getpropertybody = Expr(:block)
-        for (k,v) in pairs(delegated_fieldnames)
-            push!(getpropertybody.args, :( if field in $(Expr(:tuple, QuoteNode.(v)...)); return Base.getfield(Base.getfield(x, $(QuoteNode(k))), field) end ))
-        end
-        push!(getpropertybody.args, :(return Base.getfield(x, field)))
-        getpropertybody
-    end
+    obj = gensym(:_obj)
+    name = gensym(:_name)
+    value = gensym(:_value)
+    # obj_arg = FuncArg(; name=obj, type=T)
+    # name_arg = FuncArg(; name=name, type=:($Base.Symbol))
+    # value_arg = FuncArg(; name=value)
+    _propertynamesT = :($ForwardMethods._propertynames(::Type{$T}) = $ForwardMethods._propertynames($T, $delegated_fields_tuple_type))
+    _propertynames = :($ForwardMethods._propertynames($obj::$T) = $ForwardMethods._propertynames($T))
+    propertynames = :($Base.propertynames($obj::$T) = $ForwardMethods._propertynames($obj))
+    _getproperty = :($ForwardMethods._getproperty($obj::$T, $name::Symbol) = $ForwardMethods._getproperty($obj, $delegated_fields_tuple_type, $name))
+    getproperty = :($Base.getproperty($obj::$T, $name::Symbol) = $ForwardMethods._getproperty($obj, $name))
+    _setproperty = :($ForwardMethods._setproperty!($obj::$T, $name::Symbol, $value) = $ForwardMethods._setproperty!($obj, $delegated_fields_tuple_type, $name, $value))
+    setproperty = :($Base.setproperty!($obj::$T, $name::Symbol, $value) = $ForwardMethods._setproperty!($obj, $name, $value))
 
-    gen_setproperty_body = quote 
-        local setpropertybody = Expr(:block)
-        for (k,v) in pairs(delegated_fieldnames)
-            push!(setpropertybody.args, :( if field in $(Expr(:tuple, QuoteNode.(v)...)); return Base.setproperty!(Base.getfield(x, $(QuoteNode(k))), field, value) end ))
-        end
-        push!(setpropertybody.args, :(return Base.setfield!(x, field, value)))
-        setpropertybody
+
+    #_propertynames = FuncDef(; header=FuncCall(; funcname=:($ForwardMethods._propertynames), args=[obj_arg]), head=:(=), line=_sourceinfo, body=:($ForwardMethods._propertynames($obj, $delegated_fields_tuple_type))) |> to_expr
+    #_propertynamesT = FuncDef(; header=FuncCall(; funcname=:($ForwardMethods._propertynames), args=[FuncArg(; type=:(Type{$T}))]), head=:(=), line=_sourceinfo, body=:($ForwardMethods._propertynames($T, $delegated_fields_tuple_type))) |> to_expr
+
+#    propertynames = FuncDef(; header=FuncCall(; funcname=:($Base.propertynames), args=[obj_arg]), head=:(=), line=_sourceinfo, body=:($ForwardMethods._propertynames($obj))) |> to_expr
+    # _getproperty = FuncDef(; header=FuncCall(; funcname=:($ForwardMethods._getproperty), args=[obj_arg, name_arg]), head=:(=), line=_sourceinfo, body=:($ForwardMethods._getproperty($obj, $delegated_fields_tuple_type, $name))) |> to_expr
+    # getproperty = FuncDef(; header=FuncCall(; funcname=:($Base.getproperty), args=[obj_arg, name_arg]), head=:(=), line=_sourceinfo, body=:($ForwardMethods._getproperty($obj, $name))) |> to_expr
+    # _setproperty = FuncDef(; header=FuncCall(; funcname=:($ForwardMethods._setproperty!), args=[obj_arg, name_arg, value_arg]), head=:(=), line=_sourceinfo, body=:($ForwardMethods._setproperty!($obj, $delegated_fields_tuple_type, $name, $value))) |> to_expr
+    # setproperty = FuncDef(; header=FuncCall(; funcname=:($Base.setproperty!), args=[obj_arg, name_arg, value_arg]), head=:(=), line=_sourceinfo, body=:($ForwardMethods._setproperty!($obj, $name, $value))) |> to_expr
+
+    output = Expr(:block, line_num)
+    if ensure_unique
+        push!(output.args, :($validate_properties($T, $delegated_fields_tuple_type)))
     end
-        
-    output = Expr(:block, validate_fields)
-    push!(output.args, quote 
-        local fields = fieldnames($T)
-        local delegated_fieldnames = $(Expr(:tuple, Expr(:parameters, [Expr(:kw, k, :($Base.fieldnames($Base.fieldtype($T, $(QuoteNode(k)))))) for k in delegated_fields_sym]...)))
-        local all_fields = tuple(Iterators.flatten([collect(fields), Iterators.flatten(values(delegated_fieldnames))])...)
-        local unique_field_count = Dict{Symbol,Int}()
-        for f in all_fields
-            unique_field_count[f] = get(unique_field_count, f, 0) + 1
-        end
-        local duplicate_fields = Symbol[k for (k,v) in pairs(unique_field_count) if v > 1 ]
-        isempty(duplicate_fields) || error("Type "* string($T) * " has duplicate field names between itself and/or its requested fields (= $(keys(delegated_fieldnames))) -- duplicate field names = $(Symbol.(sort!(string.(duplicate_fields))))")
-        
-        local properties_body = $(properties_body)
-        local properties_expr = :($Base.propertynames(x::$$T) = $properties_body)
-        local getproperty_body = $(gen_getproperty_body)
-        local getproperty_expr = :($Base.getproperty(x::$$T, field::Symbol) = $getproperty_body)
-        local output = Expr(:block, properties_expr, getproperty_expr)
-        if $is_mutable || (VERSION ≥ v"1.7" && Base.ismutabletype($T))
-            local setproperty_body = $(gen_setproperty_body)
-            local setproperty_expr = :($Base.setproperty!(x::$$T, field::Symbol, value) = $setproperty_body)
-            push!(output.args, setproperty_expr)
-        end
-        eval(output)
-    end)
+    push!(output.args, map(linenum!, (_propertynames, _propertynamesT, propertynames, _getproperty, getproperty))...)
+    if is_mutable
+        push!(output.args, map(linenum!, (_setproperty, setproperty))...)
+    end
     return wrap_define_interface(T, :properties, output)
 end
 
@@ -108,16 +173,12 @@ end
 const default_define_interfaces = (:properties, :equality, :setfields, :getfields)
 
 for f in default_define_interfaces
-    @eval define_interface_method(::Val{$(QuoteNode(f))}) = $(Symbol(string(f)*"_interface"))
+    @eval define_interface_method(::Val{$(QuoteNode(f))}) = $(Symbol(f, :_interface))
 end
 
-if VERSION ≥ v"1.10.0-DEV.609"
-    define_interfaces_available() = Symbol[_val_type(fieldtype(m.sig, 2)) for m in Base.methods(define_interface_method)]
-else
-    @method_def_constant define_interface_method(::Val{::Symbol}) define_interfaces_available
-end
+@method_def_constant define_interface_method(::Val{::Symbol}) define_interfaces_available
 
-function define_interface_expr(T, kwargs::Dict{Symbol,Any}=Dict{Symbol,Any}())
+function define_interface_expr(T, kwargs::Dict{Symbol,Any}=Dict{Symbol,Any}(); _sourceinfo)
     interfaces = interface_kwarg!(kwargs)
     omit = omit_kwarg!(kwargs)
     output = Expr(:block)
@@ -125,7 +186,13 @@ function define_interface_expr(T, kwargs::Dict{Symbol,Any}=Dict{Symbol,Any}())
     for interface in interfaces
         interface in interfaces_available || error("No interface found with name $interface -- must be one of `$interfaces_available`")
         f = define_interface_method(Val(interface))
-        push!(output.args, f(T; omit, kwargs...))
+
+        current_line_num[] = _sourceinfo
+        try 
+            push!(output.args, f(T; omit, kwargs...))
+        finally 
+            current_line_num[] = nothing 
+        end
     end
     return output
 end
@@ -148,5 +215,5 @@ macro define_interface(T, args...)
         key, value = parse_kwarg_expr(arg)
         kwargs[key] = value
     end
-    return define_interface_expr(T, kwargs) |> esc
+    return define_interface_expr(T, kwargs; _sourceinfo=__source__) |> esc
 end

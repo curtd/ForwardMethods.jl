@@ -9,5 +9,5 @@ MacroUtilities = "274a0f0b-05f4-4024-87ff-de4a5b524b4f"
 
 [compat]
 MLStyle = "0.4"
-MacroUtilities = "1.15"
+MacroUtilities = "1.16"
 julia = "1.6"
