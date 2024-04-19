@@ -122,5 +122,14 @@ end
 has_defined_interface(T, interface) = false
 
 function wrap_define_interface(T, interface::Symbol, expr)
-    return Expr(:if, :(!(ForwardMethods.has_defined_interface($T, Val($(QuoteNode(interface)))))), Expr(:block, expr, :(ForwardMethods.has_defined_interface(::Type{$T}, ::Val{$(QuoteNode(interface))}) = true)))
+    return IfElseExpr(; if_else_exprs=[ 
+        :(($ForwardMethods.has_defined_interface($T, Val($(QuoteNode(interface))))) == false) => Expr(:block, expr, :($ForwardMethods.has_defined_interface(::Type{$T}, ::Val{$(QuoteNode(interface))}) = true)) 
+    ]) |> to_expr
+end
+
+const current_line_num = Base.RefValue{Union{Nothing, LineNumberNode}}(nothing)
+
+function func_def_line_num!(expr, line::Union{NotProvided, LineNumberNode})
+    f = from_expr(FuncDef, expr; throw_error=true)
+    return FuncDef(f; line) |> to_expr
 end
