@@ -2,34 +2,34 @@ _propertynames(T::Type) = Base.fieldnames(T)
 _propertynames(x) = Base.propertynames(x)
 
 @generated function validate_properties(::Type{S}, delegated_fieldnames::Type{T}) where {S, T <: Tuple}
-    output = Expr(:block, :(unique_properties = Set{Symbol}($Base.fieldnames($S))))
+    output_args = Any[:(local unique_properties = Set{Symbol}($Base.fieldnames($S)))]
     recursive = fieldtype(T, 1) === Val{:recursive}
     for i in 2:fieldcount(T)
         key = fieldtype(T, i)
         props = Symbol(key, :_properties)
         child_T = fieldtype(S, key)
         if recursive 
-            push!(output.args, :($props = Set{Symbol}( $_propertynames($child_T))))
+            push!(output_args, :(local $props = Set{Symbol}( $_propertynames($child_T))))
         else
-            push!(output.args, :($props = Set{Symbol}( $fieldnames($child_T))))
+            push!(output_args, :(local $props = Set{Symbol}( $fieldnames($child_T))))
         end
 
-        push!( output.args, :( diff = $intersect(unique_properties, $(props)) ), :(!isempty(diff) && error("Duplicate properties `$(sort(collect(diff)))` found for type $($(S)) in child `$($(QuoteNode(key)))::$($(child_T))` ")), :($union!(unique_properties, $props)))
+        push!( output_args, :( diff = $intersect(unique_properties, $(props)) ), :(!isempty(diff) && error("Duplicate properties `$(sort(collect(diff)))` found for type $($(S)) in child `$($(QuoteNode(key)))::$($(child_T))` ")), :($union!(unique_properties, $props)))
     end
-    push!(output.args, :(return nothing))
-    return output
+    push!(output_args, :(return nothing))
+    return Expr(:block, output_args...)
 end
 
 @generated function _propertynames(::Type{S}, delegated_fields::Type{T}) where {S, T <: Tuple}
     Base.isstructtype(S) || error("$S is not a struct type")
-    output = Expr(:tuple, QuoteNode.(fieldnames(S))...)
+    output_args = Any[QuoteNode.(fieldnames(S))...]
     recursive = fieldtype(T, 1) === Val{:recursive}
     for i in 2:fieldcount(T)
         key = fieldtype(T,i)
         Si = fieldtype(S, key)
-        push!(output.args, recursive ? :($_propertynames($(Si))...) : :($fieldnames($(Si))...))
+        push!(output_args, recursive ? :($_propertynames($(Si))...) : :($fieldnames($(Si))...))
     end
-    return output
+    return Expr(:tuple, output_args...)
 end
 _propertynames(x, delegated_fields) = _propertynames(typeof(x), delegated_fields)
 
@@ -88,6 +88,7 @@ If `ensure_unique == true`, throws an error when there are nonunique names in th
 
 """
 function properties_interface(T; delegated_fields, recursive::Bool=false, ensure_unique::Bool=true, kwargs...)
+    @nospecialize
     if haskey(kwargs, :is_mutable)
         Base.depwarn("Passing `is_mutable` kwarg when `interface=properties` is now deprecated", Symbol("@define_interface"))
         is_mutable = get_kwarg(Bool, kwargs, :is_mutable, false)
@@ -110,14 +111,15 @@ function properties_interface(T; delegated_fields, recursive::Bool=false, ensure
     _setproperty = :($ForwardMethods._setproperty!($obj::$T, $name::Symbol, $value) = $ForwardMethods._setproperty!($obj, $delegated_fields_tuple_type, $name, $value))
     setproperty = :($Base.setproperty!($obj::$T, $name::Symbol, $value) = $ForwardMethods._setproperty!($obj, $name, $value))
 
-    output = Expr(:block, line_num)
+    output_args = Any[]
     if ensure_unique
-        push!(output.args, :($validate_properties($T, $delegated_fields_tuple_type)))
+        push!(output_args, :($validate_properties($T, $delegated_fields_tuple_type)))
     end
-    push!(output.args, map(linenum!, (_propertynames, _propertynamesT, propertynames, _getproperty, getproperty))...)
+    push!(output_args, map(linenum!, (_propertynames, _propertynamesT, propertynames, _getproperty, getproperty))...)
     if is_mutable
-        push!(output.args, map(linenum!, (_setproperty, setproperty))...)
+        push!(output_args, map(linenum!, (_setproperty, setproperty))...)
     end
+    output = Expr(:block, line_num, output_args...)
     return wrap_define_interface(T, :properties, output)
 end
 
@@ -138,6 +140,7 @@ Any values provided in `omit` are excluded from the generator expression above.
     
 """
 function equality_interface(T; omit::AbstractVector{Symbol}=Symbol[], equality_op::Symbol=:(==), compare_fields::Symbol=:fieldnames)
+    @nospecialize
     equality_op in (:(==), :isequal) || error("equality_op (= $equality_op) must be one of (==, isequal)")
     if compare_fields == :fieldnames 
         getvalue = :($Base.getfield)
@@ -166,9 +169,10 @@ end
 @method_def_constant define_interface_method(::Val{::Symbol}) define_interfaces_available
 
 function define_interface_expr(T, kwargs::Dict{Symbol,Any}=Dict{Symbol,Any}(); _sourceinfo)
+    @nospecialize
     interfaces = interface_kwarg!(kwargs)
     omit = omit_kwarg!(kwargs)
-    output = Expr(:block)
+    output_args = Any[]
     interfaces_available = define_interfaces_available()
     for interface in interfaces
         interface in interfaces_available || error("No interface found with name $interface -- must be one of `$interfaces_available`")
@@ -176,12 +180,12 @@ function define_interface_expr(T, kwargs::Dict{Symbol,Any}=Dict{Symbol,Any}(); _
 
         current_line_num[] = _sourceinfo
         try 
-            push!(output.args, f(T; omit, kwargs...))
+            push!(output_args, f(T; omit, kwargs...))
         finally 
             current_line_num[] = nothing 
         end
     end
-    return output
+    return Expr(:block, output_args...)
 end
 
 """

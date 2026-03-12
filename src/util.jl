@@ -50,13 +50,13 @@ replace_placeholder(x, replace_values) = (x, false)
 
 function replace_placeholder(x::Expr, replace_values::Vector{<:Pair{Symbol,<:Any}})
     replaced = false
-    new_expr = Expr(x.head)
+    new_expr_args = Any[]
     for arg in x.args 
         new_arg, arg_replaced = replace_placeholder(arg, replace_values)
-        push!(new_expr.args, new_arg)
+        push!(new_expr_args, new_arg)
         replaced |= arg_replaced
     end
-    return new_expr, replaced
+    return Expr(x.head, new_expr_args...), replaced
 end
 
 identity_map_expr(obj_expr, forwarded_expr) = forwarded_expr
@@ -113,7 +113,7 @@ function omit_kwarg!(kwargs::Dict{Symbol,Any})
     end
 end
 
-function get_kwarg(::Type{T}, kwargs, key::Symbol, default) where {T}
+function get_kwarg(T::Type, kwargs, key::Symbol, default)
     value = get(kwargs, key, default)
     value isa T || error("$key (= $value) must be a $T, got typeof($key) = $(typeof(value))")
     return value
