@@ -1,6 +1,7 @@
-/Manifest.toml
-/docs/Manifest.toml
+/Manifest*.toml
+/docs/Manifest*.toml
 /docs/build/
 *.code-workspace
-Manifest.toml
+Manifest*.toml
 LocalPreferences.toml
+.vscode/

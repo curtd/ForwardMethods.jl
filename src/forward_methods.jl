@@ -106,24 +106,27 @@ function forward_method_signature(Type, field_funcs::FieldFuncExprs, map_func::F
     if !found
         error("No argument matching type $Type in input = `$input`")
     end
-    func_body = Expr(:call, funcname)
+    func_body_args = Any[funcname]
     if !isempty(kwargs)
-        push!(func_body.args, Expr(:parameters, kwargs...))
+        push!(func_body_args, Expr(:parameters, kwargs...))
     end
-    push!(func_body.args, output_args...)
-    body_block = Expr(:block)
+    push!(func_body_args, output_args...)
+    func_body = Expr(:call, func_body_args...)
+    body_block_args = Any[]
     if !isnothing(_sourceinfo)
-        push!(body_block.args, _sourceinfo)
+        push!(body_block_args, _sourceinfo)
     end
-    push!(body_block.args, found_arg_expr)
+    push!(body_block_args, found_arg_expr)
     mapped_body = !found_arg_is_type ? map_func(found_input_arg, func_body) : func_body
-    push!(body_block.args, mapped_body)
+    push!(body_block_args, mapped_body)
+    body_block = Expr(:block, body_block_args...)
 
-    new_sig = Expr(:call, funcname)
+    new_sig_args = Any[funcname]
     if !isempty(kwargs)
-        push!(new_sig.args, Expr(:parameters, kwargs...))
+        push!(new_sig_args, Expr(:parameters, kwargs...))
     end
-    push!(new_sig.args, input_args...)
+    push!(new_sig_args, input_args...)
+    new_sig = Expr(:call, new_sig_args...)
     if !isnothing(whereparams)
         new_sig = Expr(:where, new_sig, whereparams...)
     end
@@ -226,7 +229,7 @@ function forward_methods_expr(Type, field_expr, args...; _sourceinfo=nothing)
         method_exprs = args 
     end
 
-    output = Expr(:block)
+    output_args = Any[]
     for arg in method_exprs
         _args = @switch arg begin 
             @case Expr(:block, args...)
@@ -235,10 +238,10 @@ function forward_methods_expr(Type, field_expr, args...; _sourceinfo=nothing)
                 [arg]
         end
         for arg in _args
-            push!(output.args, forward_method_signature(Type, field_funcs, map_func, arg; _sourceinfo))
+            push!(output_args, forward_method_signature(Type, field_funcs, map_func, arg; _sourceinfo))
         end
     end
-    return output
+    return Expr(:block, output_args...)
 end
 
 """

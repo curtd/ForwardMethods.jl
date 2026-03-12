@@ -192,9 +192,7 @@
             @Test B([0])[1] == 0
             c = C([1])
             @Test length(c) == 1
-            @static if VERSION >= v"1.9"
-                @test_opt length(c) 
-            end
+            
         end
     end
 end

@@ -5,6 +5,7 @@ interface_at_macroexpand_time(x) = true
 base_forward_expr(f, args...) = Expr(:call, f, args...)
 
 function forward_interface_args(T)
+    @nospecialize
     t = gensym(arg_placeholder)
     obj_arg = object_argument(t, T)
     type_arg = type_argument(T)
@@ -102,6 +103,7 @@ according to the value of `index_style_linear`
 Any function names specified in `omit::AbstractVector{Symbol}` will not be defined
 """
 function array_interface(T; index_style_linear::Bool, omit::AbstractVector{Symbol}=Symbol[])
+    @nospecialize
     obj_arg, type_arg, call_expr = forward_interface_args(T)
 
     method_signatures = Any[
@@ -242,13 +244,14 @@ function getfields_interface(T; field::Union{Nothing,Symbol}=nothing, omit::Abst
     return wrap_define_interface(T, :getfields, Base.remove_linenums!(quote 
         local omit_fields = $(Expr(:tuple, QuoteNode.(omit)...))
         local fields = fieldnames($T)
-        local def_fields_expr = Expr(:block)
         local var = gensym("x")
+        local def_fields_expr_args = Any[]
         for field in fields 
             if field ∉ omit_fields
-                push!(def_fields_expr.args, :($field($var::$$T) = Base.getfield($var, $(QuoteNode(field)))))
+                push!(def_fields_expr_args, :($field($var::$$T) = Base.getfield($var, $(QuoteNode(field)))))
             end
         end
+        local def_fields_expr = Expr(:block, def_fields_expr_args...)
         eval(def_fields_expr)
         nothing
     end))
@@ -265,13 +268,14 @@ function setfields_interface(T; field::Union{Nothing,Symbol}=nothing, omit::Abst
     return wrap_define_interface(T, :setfields, Base.remove_linenums!(quote 
         local omit_fields = $(Expr(:tuple, QuoteNode.(omit)...))
         local fields = fieldnames($T)
-        local def_fields_expr = Expr(:block)
         local var = gensym("x")
+        local def_fields_expr_args = Any[]
         for field in fields 
             if field ∉ omit_fields
-                push!(def_fields_expr.args, :($(Symbol(string(field)*"!"))($var::$$T, value) = Base.setfield!($var, $(QuoteNode(field)), value)))
+                push!(def_fields_expr_args, :($(Symbol(string(field)*"!"))($var::$$T, value) = Base.setfield!($var, $(QuoteNode(field)), value)))
             end
         end
+        local def_fields_expr = Expr(:block, def_fields_expr_args...)
         eval(def_fields_expr)
         nothing
     end))
@@ -309,8 +313,7 @@ function forward_interface_expr(T, kwargs::Dict{Symbol,Any}=Dict{Symbol,Any}(); 
         field_funcs = nothing
     end
 
-    _output = Expr(:block)
-
+    _output_args = Any[]
     available_interfaces = forward_interfaces_available()
 
     for interface in interfaces
@@ -325,16 +328,16 @@ function forward_interface_expr(T, kwargs::Dict{Symbol,Any}=Dict{Symbol,Any}(); 
                 isnothing(field_funcs.type_func) && error("Only fieldname mode for `field` (= $field) supported for interface (= $interface_value)") 
             end
             signatures = f(T; omit, kwargs...)
-            output = Expr(:block)
+            output_args = Any[]
             for signature in signatures 
-                push!(output.args, forward_method_signature(T, field_funcs, map_func, signature; _sourceinfo))
+                push!(output_args, forward_method_signature(T, field_funcs, map_func, signature; _sourceinfo))
             end
-            push!(_output.args, output)
+            push!(_output_args, Expr(:block, output_args...))
         else 
-            push!(_output.args, f(T; omit, kwargs...))
+            push!(_output_args, f(T; omit, kwargs...))
         end
     end
-    return _output
+    return Expr(:block, _output_args...)
 end
 
 """
