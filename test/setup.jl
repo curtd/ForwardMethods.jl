@@ -3,7 +3,7 @@ using TestItemRunner, TestItems
 @testsnippet SetupTest begin 
     using ForwardMethods.MLStyle 
 
-    using JET, Test, TestingUtilities 
+    using Test, TestingUtilities 
 
     macro test_throws_compat(ExceptionType, message, expr)
         output = Expr(:block, __source__, :($Test.@test_throws $ExceptionType $expr))
